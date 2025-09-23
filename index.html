@@ -2,6 +2,10 @@
 <html lang="es">
 <head>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <!-- PDF.js library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.worker.min.js"></script>
+    
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Aplicación de Gestión de Ventas</title>
@@ -48,7 +52,7 @@
             from { opacity: 0; }
             to { opacity: 1; }
         }
-        /* Estilo para el dropdown de búsqueda */
+        /* Style for the search dropdown */
         .autocomplete-list {
             position: absolute;
             background-color: white;
@@ -79,14 +83,14 @@
 </head>
 <body class="min-h-screen flex flex-col">
     <div id="app" class="flex flex-col min-h-screen">
-        <!-- El header ha sido eliminado -->
+        <!-- The header has been removed -->
 
-        <!-- Contenido principal para el menú y otras vistas, visible solo cuando el usuario está autenticado -->
+        <!-- Main content for the menu and other views, visible only when the user is authenticated -->
         <main id="mainContent" class="flex-grow hidden">
-            <!-- El contenido de la página se inserta aquí dinámicamente -->
+            <!-- The page content is dynamically inserted here -->
         </main>
 
-        <!-- Contenido para la vista de login, visible solo cuando el usuario no está autenticado -->
+        <!-- Content for the login view, visible only when the user is not authenticated -->
         <main id="loginContent" class="flex-grow flex items-center justify-center p-4">
             <div class="bg-white/90 backdrop-blur-sm p-8 rounded-lg shadow-xl text-center max-w-sm w-full">
                 <h1 class="text-3xl font-bold text-gray-800 mb-6">Iniciar Sesión</h1>
@@ -107,7 +111,7 @@
             </div>
         </main>
         
-        <!-- Contenido para la vista de registro -->
+        <!-- Content for the registration view -->
         <main id="registerContent" class="flex-grow flex items-center justify-center p-4 hidden">
             <div class="bg-white/90 backdrop-blur-sm p-8 rounded-lg shadow-xl text-center max-w-sm w-full">
                 <h1 class="text-3xl font-bold text-gray-800 mb-6">Crear Cuenta</h1>
@@ -131,12 +135,12 @@
         </main>
 
 
-        <!-- Modal para mensajes y formularios -->
+        <!-- Modal for messages and forms -->
         <div id="modalContainer" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 hidden animate-fade-in">
             <div id="modalContent" class="bg-white p-8 rounded-lg shadow-xl max-w-lg w-full mx-4"></div>
         </div>
 
-        <!-- Controles Flotantes -->
+        <!-- Floating Controls -->
         <div id="floating-controls" class="fixed bottom-4 right-4 space-y-2 z-20 hidden">
              <span id="connectionStatus" class="block text-xs font-bold px-3 py-2 rounded-full shadow-lg"></span>
             <button id="logoutBtn" class="w-12 h-12 bg-red-500 text-white font-semibold rounded-full shadow-lg hover:bg-red-600 transition duration-300 flex items-center justify-center">
@@ -147,7 +151,7 @@
         </div>
     </div>
 
-    <!-- Cargar los scripts de los módulos -->
+    <!-- Load module scripts -->
     <script src="inventario.js"></script>
     <script src="catalogo.js"></script>
     <script src="sincronizacion.js"></script>
@@ -160,16 +164,15 @@
         import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, getDoc, addDoc, setDoc, deleteDoc, onSnapshot, collection, setLogLevel, writeBatch, runTransaction, getDocs, enableIndexedDbPersistence, query, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Your web app's Firebase configuration
-        // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+        // Firebase configuration
         const firebaseConfig = {
-          apiKey: "AIzaSyCJVrgqdRvLC62oAXdsbHeKAwc5GrS3HoI",
-          authDomain: "sales-and-inventory-dcy.firebaseapp.com",
-          projectId: "sales-and-inventory-dcy",
-          storageBucket: "sales-and-inventory-dcy.firebasestorage.app",
-          messagingSenderId: "396823869419",
-          appId: "1:396823869419:web:9cd3e08e040e365a4e0bae",
-          measurementId: "G-27CFBQH07Y"
+            apiKey: "AIzaSyCJVrgqdRvLC62oAXdsbHeKAwc5GrS3HoI",
+            authDomain: "sales-and-inventory-dcy.firebaseapp.com",
+            projectId: "sales-and-inventory-dcy",
+            storageBucket: "sales-and-inventory-dcy.firebasestorage.app",
+            messagingSenderId: "396823869419",
+            appId: "1:396823869419:web:9cd3e08e040e365a4e0bae",
+            measurementId: "G-27CFBQH07Y"
         };
         const appId = firebaseConfig.appId;
 
@@ -178,7 +181,7 @@
         let userId;
         let activeListeners = [];
 
-        // Referencias a los elementos del DOM
+        // DOM Element References
         const mainContent = document.getElementById('mainContent');
         const modalContainer = document.getElementById('modalContainer');
         const modalContent = document.getElementById('modalContent');
@@ -190,7 +193,7 @@
         const registerMessage = document.getElementById('registerMessage');
         const floatingControls = document.getElementById('floating-controls');
         
-        // --- FUNCIONES DE UTILIDAD (Compartidas con los módulos) ---
+        // --- UTILITY FUNCTIONS (Shared with modules) ---
         
         function showModal(title, message, onConfirm = null, confirmText = 'Confirmar') {
             modalContent.innerHTML = `
@@ -267,7 +270,7 @@
             activeListeners.push(unsubscribe);
         }
         
-        // --- LÓGICA DE AUTENTICACIÓN Y VISTAS PRINCIPALES ---
+        // --- AUTHENTICATION AND MAIN VIEWS LOGIC ---
 
         async function handleRegister(e) {
             e.preventDefault();
@@ -354,7 +357,7 @@
             });
             activeListeners.push(unsubscribe);
 
-            // Inicializar los módulos externos
+            // Initialize external modules
             const dependencies = {
                 db, userId, appId, mainContent, floatingControls, activeListeners,
                 showMainMenu, showModal, showAddItemModal, populateDropdown,
@@ -381,7 +384,7 @@
                                 <button id="inventarioBtn" class="w-full px-6 py-3 bg-blue-500 text-white font-semibold rounded-lg shadow-md hover:bg-blue-600">Inventario</button>
                                 <button id="clientesBtn" class="w-full px-6 py-3 bg-indigo-500 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-600">Clientes</button>
                                 <button id="ventasBtn" class="w-full px-6 py-3 bg-green-500 text-white font-semibold rounded-lg shadow-md hover:bg-green-600">Ventas</button>
-                                <button id="cxcBtn" class="w-full px-6 py-3 bg-cyan-500 text-white font-semibold rounded-lg shadow-md hover:bg-cyan-600">Cuentas por Cobrar (CXC)</button>
+                                <button id="cxcBtn" class="w-full px-6 py-3 bg-yellow-600 text-white font-semibold rounded-lg shadow-md hover:bg-yellow-700">Cuentas por Cobrar (CXC)</button>
                                 <button id="catalogoBtn" class="w-full px-6 py-3 bg-purple-500 text-white font-semibold rounded-lg shadow-md hover:bg-purple-600">Catálogo</button>
                                 <button id="sincronizacionBtn" class="w-full px-6 py-3 bg-orange-500 text-white font-semibold rounded-lg shadow-md hover:bg-orange-600">Sincronización</button>
                             </div>
@@ -397,7 +400,7 @@
             document.getElementById('sincronizacionBtn').addEventListener('click', window.showSincronizacionView);
         }
 
-        // --- INICIALIZACIÓN DE LA APP ---
+        // --- APP INITIALIZATION ---
         async function initializeAppAndListeners() {
             const app = initializeApp(firebaseConfig);
             db = getFirestore(app);
@@ -406,7 +409,7 @@
             try {
                 await enableIndexedDbPersistence(db);
             } catch (err) {
-                console.warn("Error al habilitar la persistencia:", err.code);
+                console.warn("Error enabling persistence:", err.code);
             }
             onAuthStateChanged(auth, (user) => user ? showMainView(user.uid) : showLoginView());
         }
@@ -423,8 +426,8 @@
 
             if ('serviceWorker' in navigator) {
                 navigator.serviceWorker.register('service-worker.js')
-                    .then(reg => console.log('ServiceWorker registrado'))
-                    .catch(err => console.log('ServiceWorker falló', err));
+                    .then(reg => console.log('ServiceWorker registered'))
+                    .catch(err => console.log('ServiceWorker failed', err));
             }
         });
     </script>
