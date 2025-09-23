@@ -220,33 +220,25 @@
         const lines = summaryText.split('\n');
         const pdfClients = new Map();
         
-        // Regex para identificar una línea de cliente válida: número al inicio, texto, y un vendedor y fecha al final.
         const lineRegex = /^\s*(\d+)\s+(.+?)\s+([A-ZÁÉÍÓÚÑ]+)\s+(\d{1,2}\/\d{1,2}\/\d{4})/;
 
         for (const line of lines) {
             const match = line.match(lineRegex);
             if (match) {
-                // El grupo 2 contiene todo el texto entre el número de línea y el vendedor.
-                let middleContent = match[2].trim();
-                
-                // Limpiamos los datos numéricos y de columnas del final del string.
-                const parts = middleContent.split(/\s+/);
-                const nameParts = [];
-                for (const part of parts) {
-                    // Si la parte no es un número (o un formato de número), la consideramos parte del nombre.
-                    if (isNaN(parseFloat(part.replace(',', '.')))) {
-                        nameParts.push(part);
-                    }
-                }
-                let fullName = nameParts.join(' ').trim();
+                let contentBetween = match[2];
+                // Eliminar el vendedor y la fecha del final del contenido para aislar el nombre
+                let nameBlock = contentBetween.replace(/\s+[A-ZÁÉÍÓÚÑ]+\s*$/, '').trim();
 
-                let commercialName = fullName;
+                // Eliminar columnas numéricas y de letras sueltas que puedan estar pegadas al nombre
+                nameBlock = nameBlock.replace(/(\s+[\d,.-]+|\s+[DGP])+\s*$/, '').trim();
+
+                let commercialName = nameBlock;
                 let personalName = '';
 
-                const nameSplit = commercialName.split(/\s{2,}/);
-                if (nameSplit.length > 1) {
-                    commercialName = nameSplit[0].trim();
-                    personalName = nameSplit.slice(1).join(' ').trim();
+                const nameParts = commercialName.split(/\s{2,}/);
+                if (nameParts.length > 1) {
+                    commercialName = nameParts[0].trim();
+                    personalName = nameParts.slice(1).join(' ').trim();
                 }
 
                 if (commercialName && !pdfClients.has(commercialName.toLowerCase())) {
