@@ -332,7 +332,13 @@
 
         async function preloadAllData() {
             const collectionsToPreload = ['inventario', 'clientes', 'ventas', 'rubros', 'segmentos', 'marcas', 'sectores'];
-            const preloadPromises = collectionsToPreload.map(colName => getDocs(collection(db, `artifacts/${appId}/users/${userId}/${colName}`)));
+            const preloadPromises = collectionsToPreload.map(colName => {
+                const collRef = collection(db, `artifacts/${appId}/users/${userId}/${colName}`);
+                return getDocs(collRef).catch(error => {
+                    console.warn(`No se pudo precargar la colección '${colName}':`, error.message);
+                    return null; // Devuelve null en caso de error para que Promise.all no se detenga
+                });
+            });
             await Promise.all(preloadPromises);
         }
 
@@ -343,10 +349,12 @@
             mainContent.innerHTML = `<div class="p-4 flex items-center justify-center min-h-full"><div class="bg-white/90 p-8 rounded-lg shadow-xl text-center"><h2 class="text-2xl font-bold">Sincronizando datos...</h2></div></div>`;
             mainContent.classList.remove('hidden');
 
+            // Intenta precargar los datos, pero no dejes que un error detenga la app
             try {
                 await preloadAllData();
             } catch (error) {
-                showModal('Error de Sincronización', 'No se pudieron cargar todos los datos.');
+                console.error("Error durante la precarga de datos:", error);
+                showModal('Error de Sincronización', 'No se pudieron cargar algunos datos iniciales. La aplicación podría funcionar con datos locales.');
             }
             
             const unsubscribe = onSnapshot(collection(db, `artifacts/${appId}/users/${userId}/rubros`), { includeMetadataChanges: true }, (snapshot) => {
@@ -370,6 +378,7 @@
             window.initVentas(dependencies);
             window.initCXC(dependencies);
 
+            // Mostrar el menú principal sin importar el resultado de la precarga
             showMainMenu();
         }
 
