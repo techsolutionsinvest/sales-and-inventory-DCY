@@ -23,6 +23,7 @@ window.initClientes = function(deps) {
  * Displays the main submenu for the customer management section.
  */
 window.showClientesSubMenu = function() {
+    dependencies.floatingControls.classList.add('hidden'); // Oculta los controles al entrar a este menú
     dependencies.mainContent.innerHTML = `
         <div class="p-4 pt-8 animate-fade-in">
             <div class="container mx-auto">
@@ -336,6 +337,7 @@ function showAddSectorModal(clientId, onCancelCallback) {
  * Displays the view for bulk editing/deleting customers.
  */
 function showEdicionMasivaView() {
+    dependencies.floatingControls.classList.add('hidden');
     let sectorOptions = allSectors.map(sector => `<option value="${sector}">${sector}</option>`).join('');
     dependencies.mainContent.innerHTML = `
         <div class="p-4 animate-fade-in"><div class="container mx-auto max-w-2xl"><div class="bg-white/90 p-8 rounded-lg shadow-xl">
@@ -503,5 +505,4 @@ async function procesarYGuardarClientes(rows) {
     }
     dependencies.showModal('Sincronización Completa', `Se analizaron ${rows.length} filas.<br><strong>${clientesNuevosContador} clientes nuevos</strong> fueron importados.`, showVerEditarClientes);
 }
-
 
