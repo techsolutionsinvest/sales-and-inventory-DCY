@@ -30,6 +30,7 @@
         _setDoc = dependencies.setDoc;
         _deleteDoc = dependencies.deleteDoc;
         _getDocs = dependencies.getDocs;
+        _writeBatch = dependencies.writeBatch;
         _query = dependencies.query;
         _where = dependencies.where;
         
@@ -164,26 +165,30 @@
         const startSyncBtn = document.getElementById('startSyncBtn');
         startSyncBtn.disabled = true;
         syncStatus.innerHTML = `<p class="text-blue-500">Leyendo y procesando el archivo PDF... Esto puede tardar unos momentos.</p>`;
+        
+        if (typeof pdfjsLib === 'undefined') {
+            syncStatus.innerHTML = `<p class="text-red-500">Error: La librería PDF no está cargada. Por favor, recarga la página.</p>`;
+            _showModal('Error de Configuración', 'La funcionalidad de lectura de PDF no está lista. Es necesario actualizar el archivo principal de la aplicación (index.html) para incluir la librería necesaria.');
+            startSyncBtn.disabled = false;
+            return;
+        }
 
         try {
             const fileReader = new FileReader();
             fileReader.onload = async function() {
-                // Configurar el worker de PDF.js
                 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.worker.min.js';
                 
                 const typedarray = new Uint8Array(this.result);
                 const pdf = await pdfjsLib.getDocument(typedarray).promise;
                 let fullText = '';
 
-                // Extraer texto de todas las páginas
                 for (let i = 1; i <= pdf.numPages; i++) {
                     const page = await pdf.getPage(i);
                     const textContent = await page.getTextContent();
-                    // Une los items de texto con un espacio para simular el layout
                     fullText += textContent.items.map(item => item.str).join(' ') + '\n';
                 }
                 
-                parseAndPrepareSync(fullText);
+                await parseAndSyncClients(fullText);
             };
             fileReader.readAsArrayBuffer(file);
         } catch (error) {
@@ -195,126 +200,105 @@
     }
 
     /**
-     * Parsea el texto extraído del PDF, muestra una confirmación y ejecuta la sincronización.
+     * Parsea el texto del PDF para encontrar clientes nuevos, pide confirmación y los crea.
      */
-    async function parseAndPrepareSync(text) {
+    async function parseAndSyncClients(text) {
         const syncStatus = document.getElementById('sync-status');
-        syncStatus.innerHTML = `<p class="text-blue-500">Analizando texto del PDF...</p>`;
+        syncStatus.innerHTML = `<p class="text-blue-500">Analizando texto del PDF para encontrar clientes...</p>`;
 
-        // Esta es la parte más delicada. Se usa una expresión regular para encontrar patrones
-        // que coincidan con la tabla de resumen de clientes en las primeras páginas.
-        // Formato esperado: [Número] [NOMBRE COMERCIAL] [NOMBRE PERSONAL OPCIONAL] ... [Monto Deuda] ... [Vendedor] [Fecha]
-        const summaryRegex = /(\d+)\s+([A-ZÁÉÍÓÚÑ&.'\s]+?)\s+([\d,.-]+)\s+(\d+|[A-Z\s]+)\s+([\d\sA-Z]+)\s+([\d\sA-Z]+)?\s*([\d,.-]+)?\s+([A-ZÁÉÍÓÚÑ]+)\s+(\d{1,2}\/\d{1,2}\/\d{4})/g;
+        const summaryRegex = /(\d+)\s+([A-ZÁÉÍÓÚÑ&.'\s]+?)\s+([\d,.-]+)\s+/g;
 
-        // Se busca desde el inicio del resumen hasta el final de la tabla.
         const summaryStart = text.indexOf("RAZON SOCIAL");
         const summaryEnd = text.indexOf("SUB TOTAL");
         if (summaryStart === -1 || summaryEnd === -1) {
             _showModal('Error de Formato', 'No se pudo encontrar la tabla de resumen de clientes en el PDF. Verifique que el archivo sea correcto.');
+            syncStatus.innerHTML = `<p class="text-red-500">Análisis fallido. Formato de PDF no reconocido.</p>`;
+            document.getElementById('startSyncBtn').disabled = false;
             return;
         }
         const summaryText = text.substring(summaryStart, summaryEnd);
 
         let match;
-        const clientsToSync = [];
+        const pdfClients = new Map();
         while ((match = summaryRegex.exec(summaryText)) !== null) {
             let commercialName = match[2].trim();
             let personalName = '';
-            
-            // Heurística para separar nombres de dos líneas
-            const nameParts = commercialName.split(/\s{3,}/); // Separar por múltiples espacios
-            if (nameParts.length > 1) {
+
+            const nameParts = commercialName.split(/\s{3,}/);
+            if (nameParts.length > 1 && nameParts[0].trim().length > 0) {
                 commercialName = nameParts[0].trim();
                 personalName = nameParts.slice(1).join(' ').trim();
             }
 
-            // El monto de la deuda es el que aparece después del nombre.
-            const debtAmount = parseFloat(match[3].replace(/[.,]/g, (m) => (m === ',' ? '.' : '')));
-
-            if (!isNaN(debtAmount) && debtAmount > 0) {
-                 clientsToSync.push({
+            if (commercialName && !pdfClients.has(commercialName.toLowerCase())) {
+                pdfClients.set(commercialName.toLowerCase(), {
                     nombreComercial: commercialName,
-                    nombrePersonal: personalName,
-                    deuda: debtAmount,
-                    vendedor: match[8].trim()
+                    nombrePersonal: personalName || 'N/A',
                 });
             }
         }
-        
-        if (clientsToSync.length === 0) {
-            _showModal('Sin Datos', 'No se encontraron clientes con deudas pendientes en el resumen del PDF para sincronizar.');
-            syncStatus.innerHTML = `<p class="text-yellow-500">Análisis completo. No se encontraron datos para sincronizar.</p>`;
+
+        const existingCommercialNames = new Set(_clientesCache.map(c => c.nombreComercial.toLowerCase()));
+        const newClientsToAdd = [];
+        for (const [key, pdfClient] of pdfClients.entries()) {
+            if (!existingCommercialNames.has(key)) {
+                newClientsToAdd.push(pdfClient);
+            }
+        }
+
+        if (newClientsToAdd.length === 0) {
+            _showModal('Sin Novedades', 'Todos los clientes del archivo PDF ya existen en la base de datos.');
+            syncStatus.innerHTML = `<p class="text-green-500">Análisis completo. No se encontraron clientes nuevos para agregar.</p>`;
             document.getElementById('startSyncBtn').disabled = false;
             return;
         }
 
-        // Mostrar modal de confirmación
         const confirmationMessage = `
-            <p>Se encontraron ${clientsToSync.length} clientes con deudas en el PDF.</p>
-            <p class="mt-2 font-bold text-red-600">¡Atención! Esta acción borrará TODAS las transacciones de CXC existentes y las reemplazará con un "Saldo Inicial" basado en este archivo.</p>
-            <p class="mt-2">¿Deseas continuar?</p>
+            <p>Se encontraron ${newClientsToAdd.length} clientes nuevos en el PDF.</p>
+            <p class="mt-2">¿Deseas agregarlos a tu lista de clientes? La información de sector, teléfono y código CEP quedará en blanco.</p>
+            <div class="text-left max-h-40 overflow-y-auto mt-4 border p-2 rounded">
+                ${newClientsToAdd.map(c => `<p class="text-sm">${c.nombreComercial}</p>`).join('')}
+            </div>
         `;
 
-        _showModal('Confirmar Sincronización', confirmationMessage, async () => {
-            syncStatus.innerHTML = `<p class="text-blue-500">Sincronizando ${clientsToSync.length} clientes...</p>`;
+        const startSyncBtn = document.getElementById('startSyncBtn');
+        _showModal('Confirmar Sincronización de Clientes', confirmationMessage, async () => {
+            syncStatus.innerHTML = `<p class="text-blue-500">Agregando ${newClientsToAdd.length} clientes nuevos...</p>`;
             try {
                 const batch = _writeBatch(_db);
+                const clientesRef = _collection(_db, `artifacts/${_appId}/users/${_userId}/clientes`);
 
-                // 1. Borrar todas las transacciones CXC existentes
-                const transaccionesRef = _collection(_db, `artifacts/${_appId}/users/${_userId}/cxc_transacciones`);
-                const existingTransactions = await _getDocs(transaccionesRef);
-                existingTransactions.forEach(doc => batch.delete(doc.ref));
-
-                // 2. Procesar cada cliente del PDF
-                for (const pdfClient of clientsToSync) {
-                    let clienteId;
-                    // Buscar si el cliente ya existe
-                    const existingClient = _clientesCache.find(c => c.nombreComercial.toLowerCase() === pdfClient.nombreComercial.toLowerCase());
-
-                    if (existingClient) {
-                        clienteId = existingClient.id;
-                    } else {
-                        // Si no existe, crear un nuevo cliente
-                        const newClientRef = _doc(_collection(_db, `artifacts/${_appId}/users/${_userId}/clientes`));
-                        batch.set(newClientRef, {
-                            nombreComercial: pdfClient.nombreComercial,
-                            nombrePersonal: pdfClient.nombrePersonal || 'N/A',
-                            sector: 'Sincronizado PDF',
-                            telefono: 'N/A',
-                            codigoCEP: 'N/A'
-                        });
-                        clienteId = newClientRef.id;
-                    }
-
-                    // 3. Crear la transacción de "Saldo Inicial"
-                    const newTransaccionRef = _doc(_collection(_db, `artifacts/${_appId}/users/${_userId}/cxc_transacciones`));
-                    batch.set(newTransaccionRef, {
-                        clienteId: clienteId,
-                        fecha: new Date(),
-                        tipo: 'factura', // Se registra como una factura para representar la deuda
-                        monto: pdfClient.deuda,
-                        descripcion: `Saldo Inicial sincronizado desde PDF`
+                for (const clientData of newClientsToAdd) {
+                    const newClientRef = _doc(clientesRef);
+                    batch.set(newClientRef, {
+                        nombreComercial: clientData.nombreComercial,
+                        nombrePersonal: clientData.nombrePersonal,
+                        sector: '',
+                        telefono: '',
+                        codigoCEP: ''
                     });
                 }
 
                 await batch.commit();
-                _showModal('Éxito', 'La sincronización se completó correctamente. Los saldos de los clientes han sido actualizados.');
-                syncStatus.innerHTML = `<p class="text-green-500">¡Sincronización exitosa!</p>`;
-                document.getElementById('startSyncBtn').disabled = false;
-
+                _showModal('Éxito', `${newClientsToAdd.length} clientes nuevos han sido agregados correctamente.`);
+                syncStatus.innerHTML = `<p class="text-green-500">¡Sincronización de clientes exitosa!</p>`;
+                startSyncBtn.disabled = false;
             } catch (error) {
-                console.error("Error during Firestore sync:", error);
-                _showModal('Error de Sincronización', `Ocurrió un error al guardar los datos: ${error.message}`);
+                console.error("Error during Firestore client sync:", error);
+                _showModal('Error de Sincronización', `Ocurrió un error al guardar los nuevos clientes: ${error.message}`);
                 syncStatus.innerHTML = `<p class="text-red-500">Error al guardar en la base de datos.</p>`;
-                document.getElementById('startSyncBtn').disabled = false;
+                startSyncBtn.disabled = false;
             }
         });
 
-        // Si el usuario cancela
-        document.getElementById('closeModalBtn').addEventListener('click', () => {
-             document.getElementById('startSyncBtn').disabled = false;
-        });
+        const closeModalBtn = document.getElementById('closeModalBtn');
+        if(closeModalBtn) {
+            closeModalBtn.addEventListener('click', () => {
+                if(startSyncBtn) startSyncBtn.disabled = false;
+            });
+        }
     }
+
 
     /**
      * Muestra la vista de agregar cliente.
@@ -415,7 +399,6 @@
                 motivo = "teléfono";
                 break;
             }
-            // Solo buscar duplicado de CEP si no está vacío y no es 'N/A'
             if (codigoCEP && codigoCEP.toLowerCase() !== 'n/a' && c.codigoCEP === codigoCEP) {
                 duplicado = c;
                 motivo = "código CEP";
@@ -739,4 +722,3 @@
     };
 
 })();
-
