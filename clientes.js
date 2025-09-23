@@ -335,7 +335,7 @@
             </div></div></div>`;
         
         const filtersContainer = document.getElementById('clientes-filters');
-        filtersContainer.innerHTML = `<input type="text" id="search-input" placeholder="Buscar por nombre..." class="w-full px-4 py-2 border rounded-lg">`;
+        filtersContainer.innerHTML = `<input type="text" id="search-input" placeholder="Buscar por nombre..." class="w-full px-4 py-2 border rounded-lg md:col-span-2">`;
         
         const renderList = () => {
             const searchTerm = document.getElementById('search-input').value.toLowerCase();
@@ -362,7 +362,7 @@
                 <th class="py-2 px-3 text-left">N. Comercial</th><th class="py-2 px-3 text-left">N. Personal</th>
                 <th class="py-2 px-3 text-left">Sector</th><th class="py-2 px-3 text-center">Acciones</th>
             </tr></thead><tbody>
-            ${clientes.map(cliente => `
+            ${clientes.sort((a, b) => a.nombreComercial.localeCompare(b.nombreComercial)).map(cliente => `
                 <tr class="border-b"><td class="py-2 px-3">${cliente.nombreComercial}</td>
                     <td class="py-2 px-3">${cliente.nombrePersonal || ''}</td>
                     <td class="py-2 px-3">${cliente.sector || ''}</td>
@@ -439,5 +439,4 @@
     };
 
 })();
-
 
