@@ -1,5 +1,5 @@
 // --- Lógica del módulo de Cuentas por Cobrar (CXC) ---
-// Versión 2.0 - Reestructurado para historial de transacciones
+// Versión 2.1 - Corregido el bucle de renderizado en la vista de detalle
 
 (function() {
     // Variables locales del módulo
@@ -47,7 +47,6 @@
         cleanupCXCListener();
         _mainContent.innerHTML = `<div class="p-8 text-center"><h2 class="text-2xl font-bold text-gray-700">Cargando datos de clientes y saldos...</h2></div>`;
 
-        // Cargar todos los datos necesarios en paralelo
         Promise.all([
             _getDocs(_collection(_db, `artifacts/${_appId}/users/${_userId}/clientes`)),
             _getDocs(_collection(_db, `artifacts/${_appId}/users/${_userId}/cxc_transacciones`))
@@ -62,22 +61,16 @@
     };
 
     /**
-     * Calcula los saldos y renderiza la tabla general de CXC.
+     * Renderiza la tabla general de CXC.
      */
     function renderCXCGeneralView() {
-        // Procesar datos para calcular saldos y última fecha de abono
         const cxcData = _clientesCache.map(cliente => {
             const clientTransactions = _cxcTransactionsCache.filter(t => t.clienteId === cliente.id);
             const balance = clientTransactions.reduce((sum, t) => sum + t.monto, 0);
-            
-            const abonos = clientTransactions
-                .filter(t => t.tipo === 'abono')
-                .sort((a, b) => b.fecha.toDate() - a.fecha.toDate());
-            
+            const abonos = clientTransactions.filter(t => t.tipo === 'abono').sort((a, b) => b.fecha.toDate() - a.fecha.toDate());
             const ultimoAbono = abonos.length > 0 ? abonos[0].fecha.toDate().toLocaleDateString('es-ES') : 'N/A';
-
             return { ...cliente, balance, ultimoAbono };
-        }).sort((a, b) => a.nombreComercial.localeCompare(b.nombreComercial)); // Ordenar alfabéticamente
+        }).sort((a, b) => a.nombreComercial.localeCompare(b.nombreComercial));
 
         _mainContent.innerHTML = `
             <div class="p-4 animate-fade-in">
@@ -97,9 +90,7 @@
                                         <th class="py-2 px-3 text-center font-semibold">Último Abono</th>
                                     </tr>
                                 </thead>
-                                <tbody id="cxc-general-tbody">
-                                    <!-- Las filas se insertarán aquí -->
-                                </tbody>
+                                <tbody id="cxc-general-tbody"></tbody>
                             </table>
                         </div>
                     </div>
@@ -117,60 +108,41 @@
         populateCXCGeneralTable(cxcData);
     }
     
-    /**
-     * Popula la tabla de CXC General con los datos procesados.
-     */
     function populateCXCGeneralTable(data) {
         const tableBody = document.getElementById('cxc-general-tbody');
         if (!tableBody) return;
-
-        if (data.length === 0) {
-            tableBody.innerHTML = `<tr><td colspan="3" class="text-center p-4 text-gray-500">No se encontraron clientes.</td></tr>`;
-            return;
-        }
-
-        tableBody.innerHTML = data.map(cliente => `
+        tableBody.innerHTML = data.length === 0 ? `<tr><td colspan="3" class="text-center p-4 text-gray-500">No se encontraron clientes.</td></tr>`
+            : data.map(cliente => `
             <tr class="border-b hover:bg-gray-50 cursor-pointer" data-client-id="${cliente.id}">
                 <td class="py-2 px-3">${cliente.nombreComercial}</td>
-                <td class="py-2 px-3 text-right font-bold ${cliente.balance > 0 ? 'text-red-600' : 'text-green-600'}">
-                    $${cliente.balance.toFixed(2)}
-                </td>
+                <td class="py-2 px-3 text-right font-bold ${cliente.balance > 0 ? 'text-red-600' : 'text-green-600'}">$${cliente.balance.toFixed(2)}</td>
                 <td class="py-2 px-3 text-center text-gray-600">${cliente.ultimoAbono}</td>
-            </tr>
-        `).join('');
+            </tr>`).join('');
         
-        // Agregar event listeners a las nuevas filas
         tableBody.querySelectorAll('tr').forEach(row => {
             row.addEventListener('click', () => {
-                const clientId = row.dataset.clientId;
-                if (clientId) {
-                    showCXCDetalleClienteView(clientId);
+                if (row.dataset.clientId) {
+                    showCXCDetalleClienteView(row.dataset.clientId);
                 }
             });
         });
     }
 
     /**
-     * Muestra la vista de detalle para un cliente específico.
+     * Renderiza la ESTRUCTURA de la vista de detalle y activa el listener.
      */
     function showCXCDetalleClienteView(clientId) {
+        cleanupCXCListener();
         const cliente = _clientesCache.find(c => c.id === clientId);
         if (!cliente) {
             _showModal('Error', 'Cliente no encontrado.');
             return;
         }
 
-        const clientTransactions = _cxcTransactionsCache
-            .filter(t => t.clienteId === clientId)
-            .sort((a, b) => a.fecha.toDate() - b.fecha.toDate());
-        
-        let runningBalance = 0;
-
         _mainContent.innerHTML = `
             <div class="p-4 animate-fade-in">
                 <div class="container mx-auto">
                     <div class="bg-white/90 p-6 rounded-lg shadow-xl">
-                        <!-- Fila 1: Datos del cliente y Saldo -->
                         <div class="border-b pb-4 mb-4">
                             <div class="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
                                 <div>
@@ -180,12 +152,10 @@
                                 <button onclick="window.initCXC.showCXCView()" class="w-full sm:w-auto px-4 py-2 bg-gray-400 text-white font-semibold rounded-lg shadow-md hover:bg-gray-500">Volver a la lista</button>
                             </div>
                             <div id="saldo-total-cliente" class="mt-4 text-center sm:text-right">
-                                <!-- El saldo se calculará y se insertará aquí -->
+                                <p class="text-gray-600">Calculando saldo...</p>
                             </div>
                         </div>
-
-                        <!-- Formulario para agregar abono -->
-                         <div class="my-6 border p-4 rounded-lg bg-gray-50">
+                        <div class="my-6 border p-4 rounded-lg bg-gray-50">
                             <h3 class="text-lg font-semibold mb-2 text-gray-700">Registrar Abono</h3>
                             <form id="addAbonoForm" class="flex flex-col sm:flex-row items-center gap-4">
                                 <input type="number" id="abonoAmount" placeholder="Monto del abono" class="flex-grow w-full sm:w-auto p-2 border rounded-lg" required step="0.01">
@@ -193,8 +163,6 @@
                                 <button type="submit" class="w-full sm:w-auto px-6 py-2 bg-green-500 text-white font-semibold rounded-lg shadow-md hover:bg-green-600">Registrar</button>
                             </form>
                         </div>
-
-                        <!-- Fila 2 en adelante: Historial de transacciones -->
                         <div class="overflow-x-auto">
                             <table class="min-w-full bg-white text-sm">
                                 <thead class="bg-gray-100">
@@ -207,33 +175,8 @@
                                         <th class="py-2 px-2 text-center font-semibold">Vacío 1,25</th>
                                     </tr>
                                 </thead>
-                                <tbody>
-                                    ${clientTransactions.map(t => {
-                                        runningBalance += t.monto;
-                                        const isSale = t.tipo === 'venta';
-                                        const isBeerSale = isSale && t.rubros?.includes('Cerveceria y Vinos');
-                                        
-                                        let typeIndicatorHTML = '';
-                                        if (isSale) {
-                                            const bgColor = isBeerSale ? 'bg-blue-500' : 'bg-green-500';
-                                            typeIndicatorHTML = `<div class="${bgColor} text-white rounded-full w-6 h-6 flex items-center justify-center font-bold mx-auto">V</div>`;
-                                        } else { // Abono
-                                            typeIndicatorHTML = `<div class="bg-yellow-500 text-white rounded-full w-6 h-6 flex items-center justify-center font-bold mx-auto">A</div>`;
-                                        }
-
-                                        return `
-                                            <tr class="border-b">
-                                                <td class="py-2 px-2">${t.fecha.toDate().toLocaleDateString('es-ES')}</td>
-                                                <td class="py-2 px-2">${typeIndicatorHTML}</td>
-                                                <td class="py-2 px-2 text-right font-semibold ${t.monto > 0 ? 'text-red-600' : 'text-green-600'}">
-                                                    $${Math.abs(t.monto).toFixed(2)}
-                                                </td>
-                                                <td class="py-2 px-2 text-center text-gray-500">-</td>
-                                                <td class="py-2 px-2 text-center text-gray-500">-</td>
-                                                <td class="py-2 px-2 text-center text-gray-500">-</td>
-                                            </tr>
-                                        `;
-                                    }).join('')}
+                                <tbody id="cxc-detalle-tbody">
+                                    <tr><td colspan="6" class="p-4 text-center">Cargando transacciones...</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -241,36 +184,71 @@
                 </div>
             </div>
         `;
-
-        // Calcular e insertar el saldo final
-        const saldoFinalContainer = document.getElementById('saldo-total-cliente');
-        if (saldoFinalContainer) {
-            saldoFinalContainer.innerHTML = `
-                <p class="text-gray-600">Saldo Actual: 
-                    <span class="font-bold text-2xl ${runningBalance > 0 ? 'text-red-600' : 'text-green-600'}">
-                        $${runningBalance.toFixed(2)}
-                    </span>
-                </p>`;
-        }
         
-        // Listener para el formulario de abono
         document.getElementById('addAbonoForm').addEventListener('submit', (e) => handleAddAbono(e, clientId));
 
-        // Re-escuchar cambios para esta vista detallada
-        cleanupCXCListener();
+        // Activar listener para actualizar los datos
         const transRef = _collection(_db, `artifacts/${_appId}/users/${_userId}/cxc_transacciones`);
         _cxcActiveListener = _onSnapshot(transRef, (snapshot) => {
             _cxcTransactionsCache = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            // Si el DOM aún existe, refresca la vista actual
-            if (document.getElementById('saldo-total-cliente')) {
-                 showCXCDetalleClienteView(clientId);
-            }
+            // **LA CORRECCIÓN CLAVE**: Solo poblamos los datos, no volvemos a dibujar toda la vista.
+            populateCXCDetalleCliente(clientId);
         });
     }
 
     /**
-     * Maneja el registro de un nuevo abono.
+     * Rellena los DATOS en la vista de detalle ya existente.
      */
+    function populateCXCDetalleCliente(clientId) {
+        const tableBody = document.getElementById('cxc-detalle-tbody');
+        const saldoContainer = document.getElementById('saldo-total-cliente');
+        if (!tableBody || !saldoContainer) return; // Salir si la vista ya no existe
+
+        const clientTransactions = _cxcTransactionsCache
+            .filter(t => t.clienteId === clientId)
+            .sort((a, b) => a.fecha.toDate() - b.fecha.toDate());
+
+        let runningBalance = 0;
+        
+        if(clientTransactions.length === 0) {
+            tableBody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-gray-500">No hay transacciones registradas.</td></tr>`;
+        } else {
+            tableBody.innerHTML = clientTransactions.map(t => {
+                runningBalance += t.monto;
+                const isSale = t.tipo === 'venta' || t.tipo === 'saldo_inicial';
+                const isBeerSale = isSale && t.rubros?.includes('Cerveceria y Vinos');
+                
+                let typeIndicatorHTML;
+                if (isSale) {
+                    const bgColor = isBeerSale ? 'bg-blue-500' : 'bg-green-500';
+                    typeIndicatorHTML = `<div class="${bgColor} text-white rounded-full w-6 h-6 flex items-center justify-center font-bold mx-auto">V</div>`;
+                } else { // Abono
+                    typeIndicatorHTML = `<div class="bg-yellow-500 text-white rounded-full w-6 h-6 flex items-center justify-center font-bold mx-auto">A</div>`;
+                }
+
+                return `
+                    <tr class="border-b">
+                        <td class="py-2 px-2">${t.fecha.toDate().toLocaleDateString('es-ES')}</td>
+                        <td class="py-2 px-2">${typeIndicatorHTML}</td>
+                        <td class="py-2 px-2 text-right font-semibold ${t.monto > 0 ? 'text-red-600' : 'text-green-600'}">
+                            $${Math.abs(t.monto).toFixed(2)}
+                        </td>
+                        <td class="py-2 px-2 text-center text-gray-500">-</td>
+                        <td class="py-2 px-2 text-center text-gray-500">-</td>
+                        <td class="py-2 px-2 text-center text-gray-500">-</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+        
+        saldoContainer.innerHTML = `
+            <p class="text-gray-600">Saldo Actual: 
+                <span class="font-bold text-2xl ${runningBalance > 0 ? 'text-red-600' : 'text-green-600'}">
+                    $${runningBalance.toFixed(2)}
+                </span>
+            </p>`;
+    }
+    
     async function handleAddAbono(event, clientId) {
         event.preventDefault();
         const amountInput = document.getElementById('abonoAmount');
@@ -287,15 +265,13 @@
             clienteId: clientId,
             fecha: new Date(),
             tipo: 'abono',
-            monto: -amount, // Los abonos son negativos para restar del saldo
+            monto: -amount,
             descripcion: description,
-            rubros: [] // Los abonos no tienen rubros
+            rubros: []
         };
 
         try {
-            const transRef = _collection(_db, `artifacts/${_appId}/users/${_userId}/cxc_transacciones`);
-            await _addDoc(transRef, newTransaction);
-            // La vista se actualizará automáticamente gracias al listener onSnapshot
+            await _addDoc(_collection(_db, `artifacts/${_appId}/users/${_userId}/cxc_transacciones`), newTransaction);
             amountInput.value = '';
             descInput.value = '';
         } catch (error) {
@@ -303,7 +279,7 @@
         }
     }
 
-    // Exponer funciones necesarias para la interacción desde otros módulos o el HTML
+    // Exponer la función para volver a la lista de consulta
     window.initCXC.showCXCView = showCXCView;
 
 })();
