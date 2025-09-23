@@ -220,32 +220,33 @@
         const lines = summaryText.split('\n');
         const pdfClients = new Map();
         
-        // Regex mejorada para capturar el nombre de forma más fiable.
-        // Busca una línea que empiece con un número, seguido de espacios, y captura todo el texto hasta que encuentra un número que podría ser una deuda o dato de columna.
-        const lineRegex = /^\s*(\d+)\s+([A-ZÁÉÍÓÚÑ&.'\s]+?)(?=\s+[\d,.-])/;
+        // Regex para identificar una línea de cliente válida: número al inicio, texto, y un vendedor y fecha al final.
+        const lineRegex = /^\s*(\d+)\s+(.+?)\s+([A-ZÁÉÍÓÚÑ]+)\s+(\d{1,2}\/\d{1,2}\/\d{4})/;
 
         for (const line of lines) {
             const match = line.match(lineRegex);
             if (match) {
-                let fullName = match[2].trim();
+                // El grupo 2 contiene todo el texto entre el número de línea y el vendedor.
+                let middleContent = match[2].trim();
                 
-                // Limpia el nombre de posibles vendedores o artefactos del PDF
-                const vendors = ["WILLI", "MENOR", "ROBERTO", "ROBERTO WIL"];
-                vendors.forEach(vendor => {
-                    const regex = new RegExp(`\\s${vendor}\\s*$`);
-                    if (fullName.match(regex)) {
-                        fullName = fullName.replace(regex, '').trim();
+                // Limpiamos los datos numéricos y de columnas del final del string.
+                const parts = middleContent.split(/\s+/);
+                const nameParts = [];
+                for (const part of parts) {
+                    // Si la parte no es un número (o un formato de número), la consideramos parte del nombre.
+                    if (isNaN(parseFloat(part.replace(',', '.')))) {
+                        nameParts.push(part);
                     }
-                });
-                
+                }
+                let fullName = nameParts.join(' ').trim();
+
                 let commercialName = fullName;
                 let personalName = '';
 
-                // Intenta separar nombre comercial y personal si están en la misma línea separados por muchos espacios
-                const nameParts = commercialName.split(/\s{3,}/);
-                if (nameParts.length > 1 && nameParts[0].trim().length > 0) {
-                    commercialName = nameParts[0].trim();
-                    personalName = nameParts.slice(1).join(' ').trim();
+                const nameSplit = commercialName.split(/\s{2,}/);
+                if (nameSplit.length > 1) {
+                    commercialName = nameSplit[0].trim();
+                    personalName = nameSplit.slice(1).join(' ').trim();
                 }
 
                 if (commercialName && !pdfClients.has(commercialName.toLowerCase())) {
