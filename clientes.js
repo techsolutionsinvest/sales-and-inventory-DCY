@@ -57,6 +57,9 @@
                             <button id="modifyDeleteClienteBtn" class="w-full px-6 py-3 bg-indigo-500 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-600 transition duration-300 transform hover:scale-105">
                                 Modificar / Eliminar Cliente
                             </button>
+                            <button id="syncPDF" class="w-full px-6 py-3 bg-teal-600 text-white font-semibold rounded-lg shadow-md hover:bg-teal-700 transition duration-300 transform hover:scale-105">
+                                Sincronizar desde PDF de CXC
+                            </button>
                             <button id="backToMenuBtn" class="w-full px-6 py-3 bg-gray-400 text-white font-semibold rounded-lg shadow-md hover:bg-gray-500 transition duration-300 transform hover:scale-105">
                                 Volver al Menú Principal
                             </button>
@@ -68,7 +71,105 @@
         document.getElementById('verClientesBtn').addEventListener('click', showVerClientesView);
         document.getElementById('agregarClienteBtn').addEventListener('click', showAgregarClienteView);
         document.getElementById('modifyDeleteClienteBtn').addEventListener('click', showModifyDeleteSearchView);
+        document.getElementById('syncPDF').addEventListener('click', showSyncPDFView);
         document.getElementById('backToMenuBtn').addEventListener('click', _showMainMenu);
+    }
+    
+    /**
+     * Muestra la vista para cargar y sincronizar un PDF de Cuentas por Cobrar.
+     */
+    function showSyncPDFView() {
+        _mainContent.innerHTML = `
+            <div class="p-4 pt-8">
+                <div class="container mx-auto">
+                    <div class="bg-white/90 backdrop-blur-sm p-8 rounded-lg shadow-xl text-center">
+                        <h2 class="text-2xl font-bold text-gray-800 mb-4">Sincronizar desde PDF</h2>
+                        <p class="text-gray-600 mb-6 max-w-lg mx-auto">Sube el archivo PDF de Cuentas por Cobrar para actualizar automáticamente la información de clientes y sus saldos en la aplicación.</p>
+                        
+                        <div class="max-w-md mx-auto border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-teal-500 transition" id="pdf-dropzone">
+                            <input type="file" id="pdf-file-input" class="hidden" accept=".pdf">
+                            <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
+                                <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+                            </svg>
+                            <p class="mt-4 text-gray-500"><span class="font-semibold text-teal-600">Haz clic para subir un archivo</span> o arrástralo aquí.</p>
+                            <p class="text-xs text-gray-500 mt-2">Sólo archivos PDF</p>
+                            <p id="pdf-file-name" class="mt-4 font-semibold text-gray-700"></p>
+                        </div>
+
+                        <div id="sync-status" class="mt-4 text-center"></div>
+
+                        <div class="mt-8 flex flex-col sm:flex-row gap-4 max-w-md mx-auto">
+                            <button id="backToClientesBtn" class="w-full px-6 py-3 bg-gray-400 text-white font-semibold rounded-lg shadow-md hover:bg-gray-500">Volver</button>
+                            <button id="startSyncBtn" class="w-full px-6 py-3 bg-teal-600 text-white font-semibold rounded-lg shadow-md hover:bg-teal-700 disabled:bg-gray-300" disabled>
+                                Iniciar Sincronización
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const dropzone = document.getElementById('pdf-dropzone');
+        const fileInput = document.getElementById('pdf-file-input');
+        const fileNameDisplay = document.getElementById('pdf-file-name');
+        const startSyncBtn = document.getElementById('startSyncBtn');
+        let selectedFile = null;
+
+        const handleFileSelect = (file) => {
+            if (file && file.type === 'application/pdf') {
+                selectedFile = file;
+                fileNameDisplay.textContent = file.name;
+                startSyncBtn.disabled = false;
+            } else {
+                _showModal('Error', 'Por favor, selecciona un archivo PDF válido.');
+                selectedFile = null;
+                fileNameDisplay.textContent = '';
+                startSyncBtn.disabled = true;
+            }
+        };
+
+        dropzone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', (e) => handleFileSelect(e.target.files[0]));
+        
+        // Drag and drop events
+        dropzone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropzone.classList.add('border-teal-500', 'bg-teal-50');
+        });
+        dropzone.addEventListener('dragleave', () => {
+            dropzone.classList.remove('border-teal-500', 'bg-teal-50');
+        });
+        dropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropzone.classList.remove('border-teal-500', 'bg-teal-50');
+            handleFileSelect(e.dataTransfer.files[0]);
+        });
+
+        document.getElementById('backToClientesBtn').addEventListener('click', showClientesSubMenu);
+        startSyncBtn.addEventListener('click', () => handlePDFSync(selectedFile));
+    }
+
+    /**
+     * Procesa el archivo PDF subido para sincronizar la información.
+     * La lógica de lectura y parseo del PDF se añadirá en el siguiente paso.
+     */
+    function handlePDFSync(file) {
+        if (!file) {
+            _showModal('Error', 'No se ha seleccionado ningún archivo.');
+            return;
+        }
+
+        const syncStatus = document.getElementById('sync-status');
+        
+        if (typeof pdfjsLib === 'undefined') {
+            syncStatus.innerHTML = `<p class="text-red-500">Error: La librería PDF no está cargada. Se debe modificar index.html.</p>`;
+            _showModal('Error de Configuración', 'La funcionalidad de lectura de PDF no está lista. Es necesario actualizar el archivo principal de la aplicación (index.html) para incluir la librería necesaria.');
+            return;
+        }
+        
+        // Placeholder para la lógica de procesamiento real
+        _showModal('En Desarrollo', 'La funcionalidad para leer y procesar el contenido del PDF se implementará a continuación.');
+        syncStatus.innerHTML = `<p class="text-blue-500">Listo para procesar el archivo ${file.name}.</p>`;
     }
 
     /**
