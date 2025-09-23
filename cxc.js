@@ -1,5 +1,5 @@
 // --- Lógica del módulo de Cuentas por Cobrar (CXC) ---
-// Versión 2.2 - Listener de detalle optimizado para evitar bucles
+// Versión 2.3 - Arquitectura robusta con carga en fases y validación de datos
 
 (function() {
     // Variables locales del módulo
@@ -8,7 +8,7 @@
 
     // Cachés de datos del módulo
     let _clientesCache = [];
-    let _cxcTransactionsCache = [];
+    let _cxcTransactionsCache = []; // Usado para la vista general
     let _cxcActiveListener = null;
 
     /**
@@ -48,17 +48,21 @@
         cleanupCXCListener();
         _mainContent.innerHTML = `<div class="p-8 text-center"><h2 class="text-2xl font-bold text-gray-700">Cargando datos de clientes y saldos...</h2></div>`;
 
-        Promise.all([
-            _getDocs(_collection(_db, `artifacts/${_appId}/users/${_userId}/clientes`)),
-            _getDocs(_collection(_db, `artifacts/${_appId}/users/${_userId}/cxc_transacciones`))
-        ]).then(([clientSnapshot, transactionsSnapshot]) => {
-            _clientesCache = clientSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            _cxcTransactionsCache = transactionsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            renderCXCGeneralView();
-        }).catch(error => {
-            console.error("Error al cargar datos de CXC:", error);
-            _showModal('Error', `No se pudieron cargar los datos: ${error.message}`);
-        });
+        try {
+            Promise.all([
+                _getDocs(_collection(_db, `artifacts/${_appId}/users/${_userId}/clientes`)),
+                _getDocs(_collection(_db, `artifacts/${_appId}/users/${_userId}/cxc_transacciones`))
+            ]).then(([clientSnapshot, transactionsSnapshot]) => {
+                _clientesCache = clientSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                _cxcTransactionsCache = transactionsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                renderCXCGeneralView();
+            }).catch(error => {
+                console.error("Error al cargar datos de CXC:", error);
+                _showModal('Error', `No se pudieron cargar los datos: ${error.message}`);
+            });
+        } catch (error) {
+            _showModal('Error Crítico', 'Ocurrió un error inesperado al iniciar la carga de datos.');
+        }
     };
 
     /**
@@ -67,8 +71,12 @@
     function renderCXCGeneralView() {
         const cxcData = _clientesCache.map(cliente => {
             const clientTransactions = _cxcTransactionsCache.filter(t => t.clienteId === cliente.id);
-            const balance = clientTransactions.reduce((sum, t) => sum + t.monto, 0);
-            const abonos = clientTransactions.filter(t => t.tipo === 'abono').sort((a, b) => b.fecha.toDate() - a.fecha.toDate());
+            const balance = clientTransactions.reduce((sum, t) => sum + (t.monto || 0), 0);
+            
+            const abonos = clientTransactions
+                .filter(t => t.tipo === 'abono' && t.fecha && typeof t.fecha.toDate === 'function')
+                .sort((a, b) => b.fecha.toDate() - a.fecha.toDate());
+            
             const ultimoAbono = abonos.length > 0 ? abonos[0].fecha.toDate().toLocaleDateString('es-ES') : 'N/A';
             return { ...cliente, balance, ultimoAbono };
         }).sort((a, b) => a.nombreComercial.localeCompare(b.nombreComercial));
@@ -195,6 +203,12 @@
         _cxcActiveListener = _onSnapshot(q, (snapshot) => {
             const clientTransactions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             populateCXCDetalleCliente(clientTransactions);
+        }, (error) => {
+            console.error("Error en el listener de CXC:", error);
+            const tableBody = document.getElementById('cxc-detalle-tbody');
+            if (tableBody) {
+                tableBody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-red-500">Error al recibir actualizaciones.</td></tr>`;
+            }
         });
     }
 
@@ -206,17 +220,22 @@
         const saldoContainer = document.getElementById('saldo-total-cliente');
         if (!tableBody || !saldoContainer) return; // Salir si la vista ya no existe
 
-        clientTransactions.sort((a, b) => a.fecha.toDate() - b.fecha.toDate());
+        // **MEJORA DE ROBUSTEZ**: Filtrar transacciones con datos inválidos
+        const validTransactions = clientTransactions.filter(t => 
+            t.fecha && typeof t.fecha.toDate === 'function' && !isNaN(t.monto)
+        );
+
+        validTransactions.sort((a, b) => a.fecha.toDate() - b.fecha.toDate());
 
         let runningBalance = 0;
         
-        if(clientTransactions.length === 0) {
+        if(validTransactions.length === 0) {
             tableBody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-gray-500">No hay transacciones registradas.</td></tr>`;
         } else {
-            tableBody.innerHTML = clientTransactions.map(t => {
+            tableBody.innerHTML = validTransactions.map(t => {
                 runningBalance += t.monto;
                 const isSale = t.tipo === 'venta' || t.tipo === 'saldo_inicial';
-                const isBeerSale = isSale && t.rubros?.includes('Cerveceria y Vinos');
+                const isBeerSale = isSale && Array.isArray(t.rubros) && t.rubros.includes('Cerveceria y Vinos');
                 
                 let typeIndicatorHTML;
                 if (isSale) {
@@ -283,4 +302,3 @@
     window.initCXC.showCXCView = showCXCView;
 
 })();
-
