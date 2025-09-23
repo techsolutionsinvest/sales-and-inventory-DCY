@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aplicación de Gestión de Ventas</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- PWA Manifest and Theme Color -->
+    <meta name="theme-color" content="#ffffff"/>
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="images/icons/icon-192x192.png">
+
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        body::before {
+            content: "";
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: -1;
+            background-image: url('images/fondo.png'); 
+            background-size: cover;
+            background-position: center;
+            filter: blur(3px) brightness(0.6);
+            transition: background-image 0.5s ease-in-out;
+        }
+        body.catalogo-active::before {
+            background-image: var(--catalogo-bg-image, url('images/fondo.png'));
+        }
+        .hidden {
+            display: none;
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.5s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        /* Estilo para el dropdown de búsqueda */
+        .autocomplete-list {
+            position: absolute;
+            background-color: white;
+            border: 1px solid #e2e8f0;
+            border-top: none;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 10;
+            width: 100%;
+            border-radius: 0 0 0.5rem 0.5rem;
+        }
+        .autocomplete-item {
+            padding: 0.5rem 1rem;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .autocomplete-item:hover {
+            background-color: #f1f5f9;
+        }
+        .uppercase-ticket {
+            text-transform: uppercase;
+        }
+        .price-toggle:hover {
+            cursor: pointer;
+            background-color: #f0f0f0;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+    <div id="app" class="flex flex-col min-h-screen">
+        <!-- El header ha sido eliminado -->
+
+        <!-- Contenido principal para el menú y otras vistas, visible solo cuando el usuario está autenticado -->
+        <main id="mainContent" class="flex-grow hidden">
+            <!-- El contenido de la página se inserta aquí dinámicamente -->
+        </main>
+
+        <!-- Contenido para la vista de login, visible solo cuando el usuario no está autenticado -->
+        <main id="loginContent" class="flex-grow flex items-center justify-center p-4">
+            <div class="bg-white/90 backdrop-blur-sm p-8 rounded-lg shadow-xl text-center max-w-sm w-full">
+                <h1 class="text-3xl font-bold text-gray-800 mb-6">Iniciar Sesión</h1>
+                <form id="loginForm" class="space-y-4">
+                    <input type="email" id="emailInput" placeholder="Email" required
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <input type="password" id="passwordInput" placeholder="Contraseña" required
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <button type="submit" class="w-full px-6 py-3 bg-blue-500 text-white font-semibold rounded-lg shadow-md hover:bg-blue-600 transition duration-300 transform hover:scale-105">
+                        Ingresar
+                    </button>
+                    <p id="authMessage" class="text-sm text-red-500 mt-2"></p>
+                </form>
+                 <p class="mt-6 text-sm text-gray-800">
+                    ¿No tienes una cuenta? 
+                    <button id="goToRegisterBtn" class="font-semibold text-blue-600 hover:underline">Regístrate aquí</button>
+                </p>
+            </div>
+        </main>
+        
+        <!-- Contenido para la vista de registro -->
+        <main id="registerContent" class="flex-grow flex items-center justify-center p-4 hidden">
+            <div class="bg-white/90 backdrop-blur-sm p-8 rounded-lg shadow-xl text-center max-w-sm w-full">
+                <h1 class="text-3xl font-bold text-gray-800 mb-6">Crear Cuenta</h1>
+                <form id="registerForm" class="space-y-4">
+                    <input type="email" id="registerEmailInput" placeholder="Email" required
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <input type="password" id="registerPasswordInput" placeholder="Contraseña" required
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <input type="password" id="confirmPasswordInput" placeholder="Confirmar Contraseña" required
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <button type="submit" class="w-full px-6 py-3 bg-green-500 text-white font-semibold rounded-lg shadow-md hover:bg-green-600 transition duration-300 transform hover:scale-105">
+                        Registrar
+                    </button>
+                    <p id="registerMessage" class="text-sm text-red-500 mt-2"></p>
+                </form>
+                <p class="mt-6 text-sm text-gray-800">
+                    ¿Ya tienes una cuenta? 
+                    <button id="goToLoginBtn" class="font-semibold text-blue-600 hover:underline">Inicia sesión</button>
+                </p>
+            </div>
+        </main>
+
+
+        <!-- Modal para mensajes y formularios -->
+        <div id="modalContainer" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 hidden animate-fade-in">
+            <div id="modalContent" class="bg-white p-8 rounded-lg shadow-xl max-w-lg w-full mx-4"></div>
+        </div>
+
+        <!-- Controles Flotantes -->
+        <div id="floating-controls" class="fixed bottom-4 right-4 space-y-2 z-20 hidden">
+             <span id="connectionStatus" class="block text-xs font-bold px-3 py-2 rounded-full shadow-lg"></span>
+            <button id="logoutBtn" class="w-12 h-12 bg-red-500 text-white font-semibold rounded-full shadow-lg hover:bg-red-600 transition duration-300 flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- Cargar los scripts de los módulos -->
+    <script src="inventario.js"></script>
+    <script src="catalogo.js"></script>
+    <script src="sincronizacion.js"></script>
+    <script src="clientes.js"></script>
+    <script src="ventas.js"></script>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, addDoc, setDoc, deleteDoc, onSnapshot, collection, setLogLevel, writeBatch, runTransaction, getDocs, enableIndexedDbPersistence, query, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Configuración de Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyAiitXEEekD-7FD7kDxDIcRbxlClsF5gHU",
+            authDomain: "ventas-9a210.firebaseapp.com",
+            projectId: "ventas-9a210",
+            storageBucket: "ventas-9a210.firebasestorage.app",
+            messagingSenderId: "815890981146",
+            appId: "1:815890981146:web:938fe5e09babe511e98ca3",
+            measurementId: "G-N0QXG70WM1"
+        };
+        const appId = firebaseConfig.appId;
+
+        let db;
+        let auth;
+        let userId;
+        let activeListeners = [];
+
+        // Referencias a los elementos del DOM
+        const mainContent = document.getElementById('mainContent');
+        const modalContainer = document.getElementById('modalContainer');
+        const modalContent = document.getElementById('modalContent');
+        const loginForm = document.getElementById('loginForm');
+        const authMessage = document.getElementById('authMessage');
+        const loginContent = document.getElementById('loginContent');
+        const registerContent = document.getElementById('registerContent');
+        const registerForm = document.getElementById('registerForm');
+        const registerMessage = document.getElementById('registerMessage');
+        const floatingControls = document.getElementById('floating-controls');
+        
+        // --- FUNCIONES DE UTILIDAD (Compartidas con los módulos) ---
+        
+        function showModal(title, message, onConfirm = null, confirmText = 'Confirmar') {
+            modalContent.innerHTML = `
+                <div class="text-center">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">${title}</h3>
+                    <div class="text-gray-600 mb-6">${message}</div>
+                    <div class="space-x-4">
+                        <button id="closeModalBtn" class="px-4 py-2 bg-gray-300 text-gray-800 rounded-lg hover:bg-gray-400">Cerrar</button>
+                        ${onConfirm ? `<button id="confirmBtn" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">${confirmText}</button>` : ''}
+                    </div>
+                </div>
+            `;
+            document.getElementById('closeModalBtn').addEventListener('click', () => modalContainer.classList.add('hidden'));
+            if (onConfirm) {
+                document.getElementById('confirmBtn').addEventListener('click', () => {
+                    modalContainer.classList.add('hidden');
+                    onConfirm();
+                });
+            }
+            modalContainer.classList.remove('hidden');
+        }
+
+        function showAddItemModal(collectionName, itemName) {
+            modalContent.innerHTML = `
+                <div class="text-center">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">Agregar Nuevo ${itemName}</h3>
+                    <form id="addItemForm" class="space-y-4">
+                        <input type="text" id="newItemInput" placeholder="Nombre del ${itemName}" class="w-full px-4 py-2 border rounded-lg" required>
+                        <button type="submit" class="w-full px-4 py-2 bg-blue-500 text-white rounded-lg">Agregar</button>
+                    </form>
+                    <p id="addItemMessage" class="text-sm text-green-600 mt-2 h-4"></p>
+                    <div class="mt-4">
+                         <button id="closeItemBtn" class="px-4 py-2 bg-gray-400 text-white rounded-lg">Cerrar</button>
+                    </div>
+                </div>
+            `;
+            modalContainer.classList.remove('hidden');
+
+            const newItemInput = document.getElementById('newItemInput');
+            const addItemMessage = document.getElementById('addItemMessage');
+
+            document.getElementById('closeItemBtn').addEventListener('click', () => modalContainer.classList.add('hidden'));
+
+            document.getElementById('addItemForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const newItemName = newItemInput.value.trim();
+                if (!newItemName) return;
+
+                try {
+                    await addDoc(collection(db, `artifacts/${appId}/users/${userId}/${collectionName}`), { name: newItemName });
+                    addItemMessage.textContent = `¡"${newItemName}" agregado!`;
+                    newItemInput.value = '';
+                    newItemInput.focus();
+                    setTimeout(() => { addItemMessage.textContent = ''; }, 2000);
+                } catch (err) {
+                    addItemMessage.classList.add('text-red-600');
+                    addItemMessage.textContent = `Error al guardar.`;
+                }
+            });
+        }
+        
+        function populateDropdown(collectionName, elementId, itemName) {
+            const selectElement = document.getElementById(elementId);
+            if (!selectElement) return;
+
+            const collectionRef = collection(db, `artifacts/${appId}/users/${userId}/${collectionName}`);
+            const unsubscribe = onSnapshot(collectionRef, (snapshot) => {
+                const items = snapshot.docs.map(doc => doc.data().name).sort();
+                selectElement.innerHTML = `<option value="">Seleccione un ${itemName}</option>`;
+                items.forEach(item => {
+                    selectElement.innerHTML += `<option value="${item}">${item}</option>`;
+                });
+            });
+            // <<<< CORRECCIÓN AQUÍ >>>>
+            activeListeners.push(unsubscribe);
+        }
+        
+        // --- LÓGICA DE AUTENTICACIÓN Y VISTAS PRINCIPALES ---
+
+        async function handleRegister(e) {
+            e.preventDefault();
+            const email = document.getElementById('registerEmailInput').value;
+            const password = document.getElementById('registerPasswordInput').value;
+            const confirmPassword = document.getElementById('confirmPasswordInput').value;
+            registerMessage.textContent = '';
+            if (password !== confirmPassword) {
+                registerMessage.textContent = 'Las contraseñas no coinciden.';
+                return;
+            }
+            try {
+                await createUserWithEmailAndPassword(auth, email, password);
+            } catch (error) {
+                registerMessage.textContent = 'Error al registrar. Inténtelo de nuevo.';
+            }
+        }
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            const email = document.getElementById('emailInput').value;
+            const password = document.getElementById('passwordInput').value;
+            authMessage.textContent = '';
+            try {
+                await signInWithEmailAndPassword(auth, email, password);
+            } catch (error) {
+                authMessage.textContent = 'Error al iniciar sesión. Verifique sus credenciales.';
+            }
+        }
+
+        async function handleLogout() {
+            cleanupListeners();
+            await signOut(auth);
+        }
+        
+        function cleanupListeners() {
+            activeListeners.forEach(unsubscribe => unsubscribe());
+            activeListeners = [];
+        }
+
+        function showLoginView() {
+            cleanupListeners();
+            floatingControls.classList.add('hidden');
+            mainContent.classList.add('hidden');
+            registerContent.classList.add('hidden');
+            loginContent.classList.remove('hidden');
+            loginForm.reset();
+            authMessage.textContent = '';
+        }
+
+        function showRegisterView() {
+            floatingControls.classList.add('hidden');
+            mainContent.classList.add('hidden');
+            loginContent.classList.add('hidden');
+            registerContent.classList.remove('hidden');
+            registerForm.reset();
+            registerMessage.textContent = '';
+        }
+
+        async function preloadAllData() {
+            const collectionsToPreload = ['inventario', 'clientes', 'ventas', 'rubros', 'segmentos', 'marcas', 'sectores'];
+            const preloadPromises = collectionsToPreload.map(colName => getDocs(collection(db, `artifacts/${appId}/users/${userId}/${colName}`)));
+            await Promise.all(preloadPromises);
+        }
+
+        async function showMainView(currentUserId) {
+            userId = currentUserId;
+            loginContent.classList.add('hidden');
+            registerContent.classList.add('hidden');
+            mainContent.innerHTML = `<div class="p-4 flex items-center justify-center min-h-full"><div class="bg-white/90 p-8 rounded-lg shadow-xl text-center"><h2 class="text-2xl font-bold">Sincronizando datos...</h2></div></div>`;
+            mainContent.classList.remove('hidden');
+
+            try {
+                await preloadAllData();
+            } catch (error) {
+                showModal('Error de Sincronización', 'No se pudieron cargar todos los datos.');
+            }
+            
+            const unsubscribe = onSnapshot(collection(db, `artifacts/${appId}/users/${userId}/rubros`), { includeMetadataChanges: true }, (snapshot) => {
+                const statusEl = document.getElementById('connectionStatus');
+                if (!statusEl) return;
+                statusEl.textContent = snapshot.metadata.fromCache ? "SIN CONEXIÓN" : "EN LÍNEA";
+                statusEl.className = `text-xs font-bold px-3 py-2 rounded-full shadow-lg ${snapshot.metadata.fromCache ? 'bg-yellow-400 text-yellow-900' : 'bg-green-400 text-green-900'}`;
+            });
+            activeListeners.push(unsubscribe);
+
+            // Inicializar los módulos externos
+            const dependencies = {
+                db, userId, appId, mainContent, floatingControls, activeListeners,
+                showMainMenu, showModal, showAddItemModal, populateDropdown,
+                collection, onSnapshot, doc, getDoc, addDoc, setDoc, deleteDoc, getDocs, writeBatch, runTransaction, query, where
+            };
+            window.initInventario(dependencies);
+            window.initCatalogo(dependencies);
+            window.initSincronizacion(dependencies);
+            window.initClientes(dependencies);
+            window.initVentas(dependencies);
+
+            showMainMenu();
+        }
+
+        window.showMainMenu = function() {
+            floatingControls.classList.remove('hidden');
+            mainContent.innerHTML = `
+                <div class="p-4 pt-8">
+                    <div class="container mx-auto">
+                        <div class="bg-white/90 backdrop-blur-sm p-8 rounded-lg shadow-xl text-center">
+                            <h1 class="text-3xl font-bold text-gray-800 mb-6">Menú Principal</h1>
+                            <div class="space-y-4">
+                                <button id="inventarioBtn" class="w-full px-6 py-3 bg-blue-500 text-white font-semibold rounded-lg shadow-md hover:bg-blue-600">Inventario</button>
+                                <button id="clientesBtn" class="w-full px-6 py-3 bg-indigo-500 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-600">Clientes</button>
+                                <button id="ventasBtn" class="w-full px-6 py-3 bg-green-500 text-white font-semibold rounded-lg shadow-md hover:bg-green-600">Ventas</button>
+                                <button id="catalogoBtn" class="w-full px-6 py-3 bg-purple-500 text-white font-semibold rounded-lg shadow-md hover:bg-purple-600">Catálogo</button>
+                                <button id="sincronizacionBtn" class="w-full px-6 py-3 bg-orange-500 text-white font-semibold rounded-lg shadow-md hover:bg-orange-600">Sincronización</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.getElementById('inventarioBtn').addEventListener('click', window.showInventarioSubMenu);
+            document.getElementById('clientesBtn').addEventListener('click', window.showClientesSubMenu);
+            document.getElementById('ventasBtn').addEventListener('click', window.showVentasView);
+            document.getElementById('catalogoBtn').addEventListener('click', window.showCatalogoSubMenu);
+            document.getElementById('sincronizacionBtn').addEventListener('click', window.showSincronizacionView);
+        }
+
+        // --- INICIALIZACIÓN DE LA APP ---
+        async function initializeAppAndListeners() {
+            const app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+            setLogLevel('debug');
+            try {
+                await enableIndexedDbPersistence(db);
+            } catch (err) {
+                console.warn("Error al habilitar la persistencia:", err.code);
+            }
+            onAuthStateChanged(auth, (user) => user ? showMainView(user.uid) : showLoginView());
+        }
+
+        window.addEventListener('load', async () => {
+            await initializeAppAndListeners();
+            loginForm.addEventListener('submit', handleLogin);
+            registerForm.addEventListener('submit', handleRegister);
+            document.getElementById('logoutBtn').addEventListener('click', () => {
+                showModal('Confirmar Cierre de Sesión', '¿Estás seguro?', handleLogout, 'Confirmar');
+            });
+            document.getElementById('goToRegisterBtn').addEventListener('click', showRegisterView);
+            document.getElementById('goToLoginBtn').addEventListener('click', showLoginView);
+
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('service-worker.js')
+                    .then(reg => console.log('ServiceWorker registrado'))
+                    .catch(err => console.log('ServiceWorker falló', err));
+            }
+        });
+    </script>
+</body>
+</html>
+
