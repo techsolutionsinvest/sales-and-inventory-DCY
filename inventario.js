@@ -363,56 +363,90 @@
 
     /**
      * Updates the Firestore database with the products from the Excel file.
+     * This version prevents duplication of master data by pre-fetching and checking.
      */
     async function updateInventoryFromExcel(products) {
         _showModal('Confirmar Carga', `
-            <p>Se encontraron ${products.length} productos en el archivo de Excel.</p>
-            <p class="mt-2 font-bold text-red-600">¡Atención! Esta acción sobrescribirá los productos existentes que coincidan. Los productos nuevos serán creados.</p>
+            <p>Se encontraron ${products.length} productos válidos en el archivo.</p>
+            <p class="mt-2 font-bold text-red-600">¡Atención! Esta acción creará los productos que no existan y sobrescribirá los que sí. Los rubros, segmentos y marcas que no existan serán creados automáticamente sin duplicados.</p>
             <p class="mt-2">¿Deseas continuar con la actualización del inventario?</p>
         `, async () => {
-            _showModal('Progreso', 'Actualizando inventario... Por favor, no cierres la aplicación.');
+            _showModal('Progreso', 'Paso 1 de 2: Verificando y actualizando datos maestros...');
 
             try {
-                const batch = _writeBatch(_db);
-                const inventarioRef = _collection(_db, `artifacts/${_appId}/users/${_userId}/inventario`);
-
-                const addMasterData = async (collectionName, name, localBatch) => {
-                    const masterRef = _collection(_db, `artifacts/${_appId}/users/${_userId}/${collectionName}`);
-                    const q = _query(masterRef, _where("name", "==", name));
-                    const snapshot = await _getDocs(q);
-                    if (snapshot.empty) {
-                        const newDocRef = _doc(masterRef);
-                        localBatch.set(newDocRef, { name: name });
-                    }
-                };
-
-                for (const producto of products) {
-                    await addMasterData('rubros', producto.rubro, batch);
-                    await addMasterData('segmentos', producto.segmento, batch);
-                    await addMasterData('marcas', producto.marca, batch);
-
-                    const q = _query(inventarioRef,
-                        _where("rubro", "==", producto.rubro),
-                        _where("segmento", "==", producto.segmento),
-                        _where("marca", "==", producto.marca),
-                        _where("presentacion", "==", producto.presentacion),
-                        _where("unidadTipo", "==", producto.unidadTipo)
-                    );
-
-                    const snapshot = await _getDocs(q);
-                    if (snapshot.empty) {
-                        const newDocRef = _doc(inventarioRef);
-                        batch.set(newDocRef, producto);
-                    } else {
-                        const docId = snapshot.docs[0].id;
-                        const docRef = _doc(inventarioRef, docId);
-                        batch.set(docRef, producto);
-                    }
+                // 1. Pre-fetch existing master data for quick, case-insensitive lookups.
+                const masterDataCollections = ['rubros', 'segmentos', 'marcas'];
+                const existingMasterData = {};
+                for (const coll of masterDataCollections) {
+                    const snapshot = await _getDocs(_collection(_db, `artifacts/${_appId}/users/${_userId}/${coll}`));
+                    existingMasterData[coll] = new Set(snapshot.docs.map(doc => doc.data().name.toLowerCase()));
                 }
 
-                await batch.commit();
+                // 2. Identify unique NEW master data from the Excel file.
+                const newMasterData = { rubros: new Set(), segmentos: new Set(), marcas: new Set() };
+                products.forEach(p => {
+                    if (p.rubro && !existingMasterData.rubros.has(p.rubro.toLowerCase())) {
+                        newMasterData.rubros.add(p.rubro);
+                    }
+                    if (p.segmento && !existingMasterData.segmentos.has(p.segmento.toLowerCase())) {
+                        newMasterData.segmentos.add(p.segmento);
+                    }
+                    if (p.marca && !existingMasterData.marcas.has(p.marca.toLowerCase())) {
+                        newMasterData.marcas.add(p.marca);
+                    }
+                });
+
+                // 3. Batch write ONLY the new master data if any exists.
+                const masterBatch = _writeBatch(_db);
+                let masterDataCount = 0;
+                for (const coll in newMasterData) {
+                    newMasterData[coll].forEach(name => {
+                        const newDocRef = _doc(_collection(_db, `artifacts/${_appId}/users/${_userId}/${coll}`));
+                        masterBatch.set(newDocRef, { name });
+                        masterDataCount++;
+                    });
+                }
+                if (masterDataCount > 0) {
+                    await masterBatch.commit();
+                }
+
+                // 4. Process and batch write the inventory items in chunks to avoid limits.
+                _showModal('Progreso', `Paso 2 de 2: Actualizando ${products.length} productos...`);
+                
+                const productChunks = [];
+                for (let i = 0; i < products.length; i += 499) { // Firestore batch limit is 500
+                    productChunks.push(products.slice(i, i + 499));
+                }
+
+                for (const chunk of productChunks) {
+                    const productBatch = _writeBatch(_db);
+                    const inventarioRef = _collection(_db, `artifacts/${_appId}/users/${_userId}/inventario`);
+                    
+                    await Promise.all(chunk.map(async (producto) => {
+                         const q = _query(inventarioRef,
+                            _where("rubro", "==", producto.rubro),
+                            _where("segmento", "==", producto.segmento),
+                            _where("marca", "==", producto.marca),
+                            _where("presentacion", "==", producto.presentacion),
+                            _where("unidadTipo", "==", producto.unidadTipo)
+                        );
+                        const snapshot = await _getDocs(q);
+                        
+                        if (snapshot.empty) {
+                            const newDocRef = _doc(inventarioRef);
+                            productBatch.set(newDocRef, producto);
+                        } else {
+                            const docId = snapshot.docs[0].id;
+                            const docRef = _doc(inventarioRef, docId);
+                            productBatch.set(docRef, producto); // set() overwrites the document completely.
+                        }
+                    }));
+                    await productBatch.commit();
+                }
+
                 _showModal('Éxito', 'El inventario se ha actualizado correctamente desde el archivo de Excel.');
                 showInventarioSubMenu();
+
             } catch (error) {
                 console.error("Error updating inventory from Excel:", error);
                 _showModal('Error', `Ocurrió un error al actualizar el inventario: ${error.message}`);
@@ -658,16 +692,81 @@
                             </div>
                         </div>
 
-                        <button id="backToInventarioBtn" class="mt-8 w-full px-6 py-3 bg-gray-400 text-white font-semibold rounded-lg shadow-md hover:bg-gray-500">Volver</button>
+                        <!-- Zona de Acciones Peligrosas -->
+                        <div class="mt-8 pt-6 border-t border-red-300">
+                            <h3 class="text-lg font-semibold text-red-700 mb-2 text-center">Zona de Peligro</h3>
+                            <p class="text-sm text-center text-gray-600 mb-4">Las siguientes acciones son irreversibles. Úselas con precaución.</p>
+                            <button id="deleteAllInventoryBtn" class="w-full px-6 py-3 bg-red-600 text-white font-bold rounded-lg shadow-md hover:bg-red-700">
+                                Eliminar TODO el Inventario
+                            </button>
+                        </div>
+
+                        <button id="backToInventarioBtn" class="mt-4 w-full px-6 py-3 bg-gray-400 text-white font-semibold rounded-lg shadow-md hover:bg-gray-500">Volver</button>
                     </div>
                 </div>
             </div>
         `;
         document.getElementById('backToInventarioBtn').addEventListener('click', showInventarioSubMenu);
+        document.getElementById('deleteAllInventoryBtn').addEventListener('click', handleDeleteAllInventory);
 
         renderDataListForEditing('rubros', 'rubros-list', 'Rubro');
         renderDataListForEditing('segmentos', 'segmentos-list', 'Segmento');
         renderDataListForEditing('marcas', 'marcas-list', 'Marca');
+    }
+
+    /**
+     * Handles the complete deletion of all inventory items.
+     */
+    async function handleDeleteAllInventory() {
+        _showModal(
+            '¡ADVERTENCIA MÁXIMA!',
+            `<p class="text-left">Está a punto de eliminar <strong>TODOS</strong> los productos de su inventario de forma permanente.</p>
+             <p class="text-left mt-2">Esta acción no se puede deshacer.</p>
+             <p class="text-left mt-4">¿Está absolutamente seguro de que desea continuar?</p>`,
+            async () => {
+                _showModal('Progreso', 'Eliminando inventario... Por favor, espere.');
+                try {
+                    const inventarioRef = _collection(_db, `artifacts/${_appId}/users/${_userId}/inventario`);
+                    const snapshot = await _getDocs(inventarioRef);
+
+                    if (snapshot.empty) {
+                        _showModal('Información', 'El inventario ya está vacío.');
+                        return;
+                    }
+
+                    // Process deletions in chunks to avoid Firestore limits
+                    const batches = [];
+                    let currentBatch = _writeBatch(_db);
+                    let operationCount = 0;
+
+                    snapshot.docs.forEach((doc) => {
+                        currentBatch.delete(doc.ref);
+                        operationCount++;
+                        // Create a new batch when the current one is full
+                        if (operationCount === 499) {
+                            batches.push(currentBatch);
+                            currentBatch = _writeBatch(_db);
+                            operationCount = 0;
+                        }
+                    });
+
+                    // Add the last batch if it has any operations
+                    if (operationCount > 0) {
+                        batches.push(currentBatch);
+                    }
+
+                    // Commit all batches
+                    await Promise.all(batches.map(batch => batch.commit()));
+
+                    _showModal('Éxito', 'Todo el inventario ha sido eliminado correctamente.', showInventarioSubMenu);
+
+                } catch (error) {
+                    console.error("Error deleting all inventory:", error);
+                    _showModal('Error', `Ocurrió un error al eliminar el inventario: ${error.message}`);
+                }
+            },
+            'Sí, Eliminar Todo'
+        );
     }
 
     /**
@@ -1148,3 +1247,4 @@
     };
 
 })();
+
