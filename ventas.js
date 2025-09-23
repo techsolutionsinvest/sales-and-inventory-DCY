@@ -674,7 +674,27 @@
                     itemsVenta.push({ id: p.id, presentacion: p.presentacion, marca: p.marca ?? null, segmento: p.segmento ?? null, precio: p.precio, cantidadVendida: p.cantidadVendida, iva: p.iva ?? 0, unidadTipo: p.unidadTipo ?? 'und.' });
                 }
 
-                batch.set(ventaRef, { clienteId: _ventaActual.cliente.id, clienteNombre: _ventaActual.cliente.nombreComercial || _ventaActual.cliente.nombrePersonal, clienteNombrePersonal: _ventaActual.cliente.nombrePersonal, fecha: new Date(), total: totalVenta, productos: itemsVenta });
+                const ventaData = {
+                    clienteId: _ventaActual.cliente.id,
+                    clienteNombre: _ventaActual.cliente.nombreComercial || _ventaActual.cliente.nombrePersonal,
+                    clienteNombrePersonal: _ventaActual.cliente.nombrePersonal,
+                    fecha: new Date(),
+                    total: totalVenta,
+                    productos: itemsVenta
+                };
+                batch.set(ventaRef, ventaData);
+
+                // Crear la transacción en CXC
+                const cxcTransaccionRef = _doc(_collection(_db, `artifacts/${_appId}/users/${_userId}/cxc_transacciones`));
+                batch.set(cxcTransaccionRef, {
+                    clienteId: _ventaActual.cliente.id,
+                    ventaId: ventaRef.id,
+                    fecha: ventaData.fecha,
+                    tipo: 'factura',
+                    monto: ventaData.total,
+                    descripcion: `Venta #${ventaRef.id.substring(0, 5)}`
+                });
+
                 await batch.commit();
 
                 // Mostrar opciones después de guardar la venta
