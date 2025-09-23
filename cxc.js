@@ -1,10 +1,10 @@
 // --- Lógica del módulo de Cuentas por Cobrar (CXC) ---
-// Versión 2.1 - Corregido el bucle de renderizado en la vista de detalle
+// Versión 2.2 - Listener de detalle optimizado para evitar bucles
 
 (function() {
     // Variables locales del módulo
     let _db, _userId, _appId, _mainContent, _showMainMenu, _showModal;
-    let _collection, _onSnapshot, _doc, _getDocs, _addDoc, _writeBatch, _query;
+    let _collection, _onSnapshot, _doc, _getDocs, _addDoc, _writeBatch, _query, _where;
 
     // Cachés de datos del módulo
     let _clientesCache = [];
@@ -38,6 +38,7 @@
         _addDoc = dependencies.addDoc;
         _writeBatch = dependencies.writeBatch;
         _query = dependencies.query;
+        _where = dependencies.where;
     };
 
     /**
@@ -187,26 +188,25 @@
         
         document.getElementById('addAbonoForm').addEventListener('submit', (e) => handleAddAbono(e, clientId));
 
-        // Activar listener para actualizar los datos
+        // Activar listener para actualizar los datos, pero solo para este cliente
         const transRef = _collection(_db, `artifacts/${_appId}/users/${_userId}/cxc_transacciones`);
-        _cxcActiveListener = _onSnapshot(transRef, (snapshot) => {
-            _cxcTransactionsCache = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            // **LA CORRECCIÓN CLAVE**: Solo poblamos los datos, no volvemos a dibujar toda la vista.
-            populateCXCDetalleCliente(clientId);
+        const q = _query(transRef, _where("clienteId", "==", clientId));
+
+        _cxcActiveListener = _onSnapshot(q, (snapshot) => {
+            const clientTransactions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            populateCXCDetalleCliente(clientTransactions);
         });
     }
 
     /**
      * Rellena los DATOS en la vista de detalle ya existente.
      */
-    function populateCXCDetalleCliente(clientId) {
+    function populateCXCDetalleCliente(clientTransactions) {
         const tableBody = document.getElementById('cxc-detalle-tbody');
         const saldoContainer = document.getElementById('saldo-total-cliente');
         if (!tableBody || !saldoContainer) return; // Salir si la vista ya no existe
 
-        const clientTransactions = _cxcTransactionsCache
-            .filter(t => t.clienteId === clientId)
-            .sort((a, b) => a.fecha.toDate() - b.fecha.toDate());
+        clientTransactions.sort((a, b) => a.fecha.toDate() - b.fecha.toDate());
 
         let runningBalance = 0;
         
@@ -283,3 +283,4 @@
     window.initCXC.showCXCView = showCXCView;
 
 })();
+
