@@ -1,442 +1,287 @@
-// --- Lógica del módulo de Clientes ---
+/**
+ * Clientes.js
+ * This module handles all functionality related to customer management,
+ * including adding, viewing, and importing customers from a structured Excel/CSV file.
+ */
 
-(function() {
-    // Variables locales del módulo
-    let _db, _userId, _appId, _mainContent, _floatingControls, _activeListeners;
-    let _showMainMenu, _showModal, _populateDropdown;
-    let _collection, _onSnapshot, _doc, _addDoc, _setDoc, _deleteDoc, _getDocs, _writeBatch;
-    
-    let _clientesCache = []; // Caché en tiempo real de los clientes en Firestore
-    let _clientesExtraidosPDF = []; // Almacena temporalmente los clientes leídos del PDF
+// This variable will hold the dependencies passed from index.html
+let dependencies;
 
-    /**
-     * Inicializa el módulo y sus dependencias.
-     */
-    window.initClientes = function(dependencies) {
-        _db = dependencies.db;
-        _userId = dependencies.userId;
-        _appId = dependencies.appId;
-        _mainContent = dependencies.mainContent;
-        _floatingControls = dependencies.floatingControls;
-        _activeListeners = dependencies.activeListeners;
-        _showMainMenu = dependencies.showMainMenu;
-        _showModal = dependencies.showModal;
-        _populateDropdown = dependencies.populateDropdown;
-        _collection = dependencies.collection;
-        _onSnapshot = dependencies.onSnapshot;
-        _doc = dependencies.doc;
-        _addDoc = dependencies.addDoc;
-        _setDoc = dependencies.setDoc;
-        _deleteDoc = dependencies.deleteDoc;
-        _getDocs = dependencies.getDocs;
-        _writeBatch = dependencies.writeBatch;
-        
-        // Listener para mantener la caché de clientes actualizada
-        const clientesRef = _collection(_db, `artifacts/${_appId}/users/${_userId}/clientes`);
-        _onSnapshot(clientesRef, (snapshot) => {
-            _clientesCache = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        });
-    };
+/**
+ * Initializes the Clientes module.
+ * @param {object} deps - An object containing all required dependencies.
+ */
+window.initClientes = function(deps) {
+    dependencies = deps;
+};
 
-    /**
-     * Muestra el submenú de gestión de clientes.
-     */
-    window.showClientesSubMenu = function() {
-        _floatingControls.classList.add('hidden');
-        _mainContent.innerHTML = `
-            <div class="p-4 pt-8">
-                <div class="container mx-auto">
-                    <div class="bg-white/90 backdrop-blur-sm p-8 rounded-lg shadow-xl text-center">
-                        <h1 class="text-3xl font-bold text-gray-800 mb-6">Gestión de Clientes</h1>
-                        <div class="space-y-4">
-                            <button id="verClientesBtn" class="w-full px-6 py-3 bg-indigo-500 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-600">Ver Clientes</button>
-                            <button id="agregarClienteBtn" class="w-full px-6 py-3 bg-indigo-500 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-600">Agregar Cliente</button>
-                            <button id="syncPDF" class="w-full px-6 py-3 bg-teal-600 text-white font-semibold rounded-lg shadow-md hover:bg-teal-700">Sincronizar Clientes desde PDF</button>
-                            <button id="backToMenuBtn" class="w-full px-6 py-3 bg-gray-400 text-white font-semibold rounded-lg shadow-md hover:bg-gray-500">Volver al Menú Principal</button>
-                        </div>
+/**
+ * Displays the main submenu for the customer management section.
+ */
+window.showClientesSubMenu = function() {
+    dependencies.mainContent.innerHTML = `
+        <div class="p-4 pt-8 animate-fade-in">
+            <div class="container mx-auto">
+                <div class="bg-white/90 backdrop-blur-sm p-8 rounded-lg shadow-xl text-center">
+                    <h1 class="text-3xl font-bold text-gray-800 mb-6">Gestión de Clientes</h1>
+                    <div class="space-y-4">
+                        <button id="addClienteBtn" class="w-full px-6 py-3 bg-blue-500 text-white font-semibold rounded-lg shadow-md hover:bg-blue-600 transition-transform transform hover:scale-105">Agregar Cliente Manualmente</button>
+                        <button id="viewClientesBtn" class="w-full px-6 py-3 bg-indigo-500 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-600 transition-transform transform hover:scale-105">Ver Lista de Clientes</button>
+                        <button id="importClientesBtn" class="w-full px-6 py-3 bg-teal-500 text-white font-semibold rounded-lg shadow-md hover:bg-teal-600 transition-transform transform hover:scale-105">Importar Clientes desde Archivo</button>
+                        <button id="backToMainMenuBtn" class="mt-4 w-full px-6 py-2 bg-gray-400 text-white font-semibold rounded-lg shadow-md hover:bg-gray-500 transition-transform transform hover:scale-105">Volver al Menú</button>
                     </div>
                 </div>
             </div>
-        `;
-        document.getElementById('verClientesBtn').addEventListener('click', showVerClientesView);
-        document.getElementById('agregarClienteBtn').addEventListener('click', showAgregarClienteView);
-        document.getElementById('syncPDF').addEventListener('click', showSyncPDFView);
-        document.getElementById('backToMenuBtn').addEventListener('click', _showMainMenu);
-    }
-    
-    /**
-     * Muestra la interfaz para subir el archivo PDF de clientes.
-     */
-    function showSyncPDFView() {
-        _clientesExtraidosPDF = []; // Limpiar la lista cada vez que se entra a la vista
-        _mainContent.innerHTML = `
-            <div class="p-4 pt-8">
-                <div class="container mx-auto">
-                    <div class="bg-white/90 backdrop-blur-sm p-8 rounded-lg shadow-xl">
-                        <h2 class="text-2xl font-bold text-gray-800 mb-4 text-center">Sincronizar Clientes desde PDF</h2>
-                        <p class="text-gray-600 mb-6 max-w-lg mx-auto">Sube el archivo PDF de CXC para extraer la lista de clientes. Luego, podrás sincronizarlos con tu base de datos.</p>
-                        
-                        <div class="max-w-md mx-auto border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-teal-500 transition" id="pdf-dropzone">
-                            <input type="file" id="pdf-file-input" class="hidden" accept=".pdf">
-                            <p id="pdf-file-name" class="hidden font-semibold text-gray-700 mb-4"></p>
-                            <svg id="pdf-upload-icon" class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48"><path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
-                            <p id="pdf-upload-text" class="mt-4 text-gray-500"><span class="font-semibold text-teal-600">Haz clic para subir un archivo</span> o arrástralo aquí.</p>
-                            <p class="text-xs text-gray-500 mt-2">Sólo archivos PDF</p>
-                        </div>
+        </div>
+    `;
 
-                        <div id="sync-results-container" class="mt-6"></div>
+    // Attach event listeners
+    document.getElementById('addClienteBtn').addEventListener('click', showAgregarClienteForm);
+    document.getElementById('viewClientesBtn').addEventListener('click', showVerEditarClientes);
+    document.getElementById('importClientesBtn').addEventListener('click', showImportarClientesView);
+    document.getElementById('backToMainMenuBtn').addEventListener('click', dependencies.showMainMenu);
+};
 
-                        <div class="mt-8 flex justify-center">
-                            <button id="backToClientesBtn" class="w-full max-w-md px-6 py-3 bg-gray-400 text-white font-semibold rounded-lg shadow-md hover:bg-gray-500">Volver</button>
-                        </div>
+/**
+ * Displays the view for importing customers from a file.
+ */
+function showImportarClientesView() {
+    const message = `
+        <div class="p-4 animate-fade-in">
+            <div class="container mx-auto max-w-2xl">
+                <div class="bg-white/90 p-8 rounded-lg shadow-xl text-center">
+                    <h2 class="text-2xl font-bold mb-4 text-gray-800">Importar Clientes</h2>
+                    <p class="mb-6 text-gray-600">Selecciona un archivo Excel (.xlsx) o CSV convertido desde tu PDF de CXC. La aplicación leerá los datos estructuralmente para agregar nuevos clientes.</p>
+                    <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 hover:bg-gray-50 transition-colors">
+                        <input type="file" id="fileUploader" class="hidden" accept=".xlsx, .xls, .csv">
+                        <label for="fileUploader" class="cursor-pointer flex flex-col items-center">
+                            <svg class="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                            <span class="mt-2 text-sm font-medium text-blue-600">Haz clic para seleccionar un archivo</span>
+                        </label>
                     </div>
+                     <p id="fileName" class="mt-4 text-sm text-gray-500 h-5"></p>
+                    <button id="cancelImport" class="mt-6 px-6 py-2 bg-gray-400 text-white font-semibold rounded-lg shadow-md hover:bg-gray-500">Cancelar</button>
                 </div>
             </div>
-        `;
+        </div>
+    `;
+    dependencies.mainContent.innerHTML = message;
+    document.getElementById('cancelImport').addEventListener('click', window.showClientesSubMenu);
+    
+    const fileUploader = document.getElementById('fileUploader');
+    fileUploader.addEventListener('change', handleFileUpload);
+}
 
-        const dropzone = document.getElementById('pdf-dropzone');
-        const fileInput = document.getElementById('pdf-file-input');
-        
-        const handleFileSelect = (file) => {
-            if (file && file.type === 'application/pdf') {
-                document.getElementById('pdf-file-name').textContent = file.name;
-                document.getElementById('pdf-file-name').classList.remove('hidden');
-                document.getElementById('pdf-upload-icon').classList.add('hidden');
-                document.getElementById('pdf-upload-text').classList.add('hidden');
-                handlePDFExtraction(file);
-            } else {
-                _showModal('Error', 'Por favor, selecciona un archivo PDF válido.');
-            }
-        };
+/**
+ * Handles the file upload and parsing process using SheetJS.
+ * This version converts the sheet to an array of arrays for robust parsing.
+ * @param {Event} event - The file input change event.
+ */
+async function handleFileUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
 
-        dropzone.addEventListener('click', () => fileInput.click());
-        fileInput.addEventListener('change', (e) => handleFileSelect(e.target.files[0]));
-        
-        ['dragover', 'dragleave', 'drop'].forEach(eventName => {
-            dropzone.addEventListener(eventName, (e) => { e.preventDefault(); e.stopPropagation(); });
-        });
-        dropzone.addEventListener('dragover', () => dropzone.classList.add('border-teal-500', 'bg-teal-50'));
-        dropzone.addEventListener('dragleave', () => dropzone.classList.remove('border-teal-500', 'bg-teal-50'));
-        dropzone.addEventListener('drop', (e) => {
-            dropzone.classList.remove('border-teal-500', 'bg-teal-50');
-            handleFileSelect(e.dataTransfer.files[0]);
-        });
+    document.getElementById('fileName').textContent = `Archivo seleccionado: ${file.name}`;
+    dependencies.mainContent.innerHTML = `<div class="p-8 text-center"><h2 class="text-2xl font-bold text-gray-700">Procesando archivo...</h2></div>`;
 
-        document.getElementById('backToClientesBtn').addEventListener('click', showClientesSubMenu);
-    }
-
-    /**
-     * Lee el archivo PDF y extrae su contenido de texto.
-     */
-    async function handlePDFExtraction(file) {
-        const syncResultsContainer = document.getElementById('sync-results-container');
-        syncResultsContainer.innerHTML = `<p class="text-blue-500">Leyendo y procesando el archivo PDF...</p>`;
-        
+    const reader = new FileReader();
+    reader.onload = async (e) => {
         try {
-            const fileReader = new FileReader();
-            fileReader.onload = async function() {
-                pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.worker.min.js';
-                const typedarray = new Uint8Array(this.result);
-                const pdf = await pdfjsLib.getDocument(typedarray).promise;
-                let fullText = '';
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const firstSheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheetName];
+            // Convert to array of arrays for positional parsing
+            const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
 
-                for (let i = 1; i <= pdf.numPages; i++) {
-                    const page = await pdf.getPage(i);
-                    const textContent = await page.getTextContent();
-                    fullText += textContent.items.map(item => item.str).join(' ') + '\n';
-                }
-                
-                parseAndDisplayClients(fullText);
-            };
-            fileReader.readAsArrayBuffer(file);
+            await procesarYGuardarClientes(rows);
         } catch (error) {
-            syncResultsContainer.innerHTML = `<p class="text-red-500">Error al procesar el PDF: ${error.message}</p>`;
+            console.error("Error processing file: ", error);
+            dependencies.showModal('Error al Procesar', `No se pudo leer el archivo. Asegúrate de que sea un formato Excel/CSV válido. Error: ${error.message}`);
         }
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+/**
+ * Processes the extracted rows, checks for duplicates, and saves new customers to Firestore.
+ * This version reads data by column index, not by header name.
+ * @param {Array<Array<any>>} rows - Array of rows from the parsed file.
+ */
+async function procesarYGuardarClientes(rows) {
+    if (!rows || rows.length === 0) {
+        dependencies.showModal('Archivo Vacío', 'El archivo no contiene datos o no se pudo leer ninguna fila.', window.showClientesSubMenu);
+        return;
     }
     
-    /**
-     * Analiza el texto del PDF, extrae los clientes y muestra una tabla de confirmación.
-     */
-    function parseAndDisplayClients(text) {
-        const syncResultsContainer = document.getElementById('sync-results-container');
-        syncResultsContainer.innerHTML = `<p class="text-blue-500">Analizando clientes en el documento...</p>`;
+    dependencies.mainContent.innerHTML = `<div class="p-8 text-center"><h2 class="text-2xl font-bold text-gray-700">Verificando clientes y guardando...</h2></div>`;
 
-        const summaryStart = text.indexOf("RAZON SOCIAL");
-        const summaryEnd = text.indexOf("SUB TOTAL");
+    const collectionRef = dependencies.collection(dependencies.db, `artifacts/${dependencies.appId}/users/${dependencies.userId}/clientes`);
+    const snapshot = await dependencies.getDocs(collectionRef);
+    const clientesExistentes = new Set(snapshot.docs.map(doc => doc.data().nombreComercial.trim().toUpperCase()));
 
-        if (summaryStart === -1 || summaryEnd === -1) {
-            syncResultsContainer.innerHTML = `<p class="text-red-500">Análisis fallido. No se pudo encontrar la tabla de resumen en el PDF.</p>`;
-            return;
-        }
+    const batch = dependencies.writeBatch(dependencies.db);
+    let clientesNuevosContador = 0;
+    const codigoCepGlobal = "22405697";
 
-        const summaryText = text.substring(summaryStart, summaryEnd);
-        const lines = summaryText.split('\n');
-        const pdfClients = new Map();
-        
-        const lineRegex = /^\s*\d+\s+(.+?)\s+(WILLI|MENOR|ROBERTO|ROBERTO WIL)\s+\d{1,2}\/\d{1,2}\/\d{4}/;
+    rows.forEach(row => {
+        // A customer row is valid if the first column is a number and the second is a non-empty string.
+        const isClientRow = !isNaN(parseInt(row[0])) && typeof row[1] === 'string' && row[1].trim() !== '';
 
-        for (const line of lines) {
-            const match = line.match(lineRegex);
-            if (match) {
-                let nameBlock = match[1].replace(/\s+[\d,.-]+\s*$/, '').trim(); // Eliminar la columna de deuda del final
-
-                let commercialName = nameBlock;
-                let personalName = '';
-
-                const nameParts = commercialName.split(/\s{2,}/);
-                if (nameParts.length > 1 && nameParts[0].trim().length > 3) {
-                    commercialName = nameParts[0].trim();
-                    personalName = nameParts.slice(1).join(' ').trim();
-                }
-
-                if (commercialName && !pdfClients.has(commercialName.toLowerCase())) {
-                    pdfClients.set(commercialName.toLowerCase(), {
-                        nombreComercial: commercialName,
-                        nombrePersonal: personalName || 'N/A',
-                    });
-                }
+        if (isClientRow) {
+            const nombreComercial = String(row[1]).trim();
+            // The personal name is in column 4 (index 3). It can be a string or sometimes the number 0.
+            const nombrePersonalRaw = row[3];
+            const nombrePersonal = (typeof nombrePersonalRaw === 'string' && nombrePersonalRaw.trim() !== '0') ? nombrePersonalRaw.trim() : '';
+            
+            if (nombreComercial && !clientesExistentes.has(nombreComercial.toUpperCase())) {
+                const nuevoCliente = {
+                    nombreComercial: nombreComercial,
+                    nombrePersonal: nombrePersonal,
+                    telefono: '',
+                    sector: '',
+                    codigoCep: codigoCepGlobal,
+                    createdAt: new Date()
+                };
+                const nuevoDocRef = dependencies.doc(collectionRef);
+                batch.set(nuevoDocRef, nuevoCliente);
+                clientesExistentes.add(nombreComercial.toUpperCase());
+                clientesNuevosContador++;
             }
         }
-        
-        _clientesExtraidosPDF = Array.from(pdfClients.values());
+    });
 
-        if (_clientesExtraidosPDF.length === 0) {
-            syncResultsContainer.innerHTML = `<p class="text-yellow-500">Análisis completo. No se encontraron clientes con el formato esperado en el archivo.</p>`;
-            return;
-        }
-
-        let tableHTML = `
-            <h3 class="text-xl font-bold text-gray-800 mb-4">Clientes Encontrados en el PDF</h3>
-            <div class="overflow-y-auto max-h-60 border rounded-lg">
-                <table class="min-w-full bg-white text-sm">
-                    <thead class="bg-gray-100 sticky top-0"><tr><th class="py-2 px-3 text-left">Nombre Comercial</th><th class="py-2 px-3 text-left">Nombre Personal</th></tr></thead>
-                    <tbody>
-                        ${_clientesExtraidosPDF.map(c => `<tr class="border-b"><td class="py-2 px-3">${c.nombreComercial}</td><td class="py-2 px-3">${c.nombrePersonal}</td></tr>`).join('')}
-                    </tbody>
-                </table>
-            </div>
-            <div class="mt-6">
-                 <button id="confirmSyncBtn" class="w-full max-w-md px-6 py-3 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700">Sincronizar ${_clientesExtraidosPDF.length} Clientes</button>
-            </div>`;
-        syncResultsContainer.innerHTML = tableHTML;
-        document.getElementById('confirmSyncBtn').addEventListener('click', executeClientSync);
-    }
-    
-    /**
-     * Guarda los clientes nuevos en Firestore.
-     */
-    async function executeClientSync() {
-        if (_clientesExtraidosPDF.length === 0) {
-            _showModal('Error', 'No hay clientes para sincronizar.');
-            return;
-        }
-
-        const existingNames = new Set(_clientesCache.map(c => c.nombreComercial.toLowerCase()));
-        const newClients = _clientesExtraidosPDF.filter(pdfClient => !existingNames.has(pdfClient.nombreComercial.toLowerCase()));
-
-        if (newClients.length === 0) {
-            _showModal('Sin Novedades', 'Todos los clientes del archivo PDF ya existen en la base de datos.');
-            return;
-        }
-
-        _showModal('Confirmar Sincronización', `
-            <p>Se encontraron ${newClients.length} clientes nuevos. ¿Deseas agregarlos a tu base de datos?</p>
-            <p class="text-xs text-gray-500 mt-2">(Los clientes existentes no serán modificados)</p>`, 
-            async () => {
-                _showModal('Progreso', `Agregando ${newClients.length} clientes...`);
-                try {
-                    const batch = _writeBatch(_db);
-                    const clientesRef = _collection(_db, `artifacts/${_appId}/users/${_userId}/clientes`);
-
-                    for (const client of newClients) {
-                        const newClientRef = _doc(clientesRef);
-                        batch.set(newClientRef, {
-                            nombreComercial: client.nombreComercial,
-                            nombrePersonal: client.nombrePersonal,
-                            sector: '',
-                            telefono: '',
-                            codigoCEP: ''
-                        });
-                    }
-
-                    await batch.commit();
-                    _showModal('Éxito', `${newClients.length} clientes nuevos han sido agregados.`);
-                    showClientesSubMenu();
-                } catch (error) {
-                    _showModal('Error', `Ocurrió un error al guardar: ${error.message}`);
-                }
-            }, 'Sí, Sincronizar');
+    if (clientesNuevosContador > 0) {
+        await batch.commit();
     }
 
-    /**
-     * Muestra el formulario para agregar un nuevo cliente manualmente.
-     */
-    function showAgregarClienteView() {
-         _mainContent.innerHTML = `
-            <div class="p-4 pt-8"><div class="container mx-auto"><div class="bg-white/90 backdrop-blur-sm p-8 rounded-lg shadow-xl text-center">
-                <h2 class="text-2xl font-bold text-gray-800 mb-6">Agregar Cliente</h2>
-                <form id="clienteForm" class="space-y-4 text-left">
-                    <div>
-                        <label for="sector" class="block text-gray-700 font-medium mb-2">Sector:</label>
-                        <div class="flex items-center space-x-2">
-                            <select id="sector" class="w-full px-4 py-2 border rounded-lg" required></select>
-                            <button type="button" onclick="window.initClientes.showAddItemModal('sectores', 'Sector')" class="px-4 py-2 bg-gray-400 text-white rounded-lg hover:bg-gray-500">Agregar</button>
+    dependencies.showModal('Sincronización Completa', `Se analizaron ${rows.length} filas del archivo.<br><strong>${clientesNuevosContador} clientes nuevos</strong> fueron importados.`, showVerEditarClientes);
+}
+
+
+/**
+ * Displays the form for adding a new customer manually.
+ */
+function showAgregarClienteForm() {
+    dependencies.mainContent.innerHTML = `
+        <div class="p-4 animate-fade-in">
+            <div class="container mx-auto max-w-2xl">
+                <div class="bg-white/90 p-8 rounded-lg shadow-xl">
+                    <h2 class="text-2xl font-bold mb-6 text-center">Agregar Nuevo Cliente</h2>
+                    <form id="clienteForm" class="space-y-4">
+                        <input type="text" id="nombreComercial" placeholder="Nombre Comercial (Requerido)" class="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500" required>
+                        <input type="text" id="nombrePersonal" placeholder="Nombre Personal" class="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                        <input type="tel" id="telefono" placeholder="Teléfono" class="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                        <input type="text" id="sector" placeholder="Sector" class="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                        <input type="text" id="codigoCep" placeholder="Código CEP" class="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                        <div class="flex justify-between items-center pt-4">
+                            <button type="button" id="cancelAddCliente" class="px-6 py-2 bg-gray-400 text-white font-semibold rounded-lg shadow-md hover:bg-gray-500">Cancelar</button>
+                            <button type="submit" class="px-6 py-2 bg-blue-500 text-white font-semibold rounded-lg shadow-md hover:bg-blue-600">Guardar Cliente</button>
                         </div>
-                    </div>
-                    <div><label for="nombreComercial" class="block text-gray-700 font-medium mb-2">Nombre Comercial:</label><input type="text" id="nombreComercial" class="w-full px-4 py-2 border rounded-lg" required></div>
-                    <div><label for="nombrePersonal" class="block text-gray-700 font-medium mb-2">Nombre Personal:</label><input type="text" id="nombrePersonal" class="w-full px-4 py-2 border rounded-lg"></div>
-                    <div><label for="telefono" class="block text-gray-700 font-medium mb-2">Teléfono:</label><input type="tel" id="telefono" class="w-full px-4 py-2 border rounded-lg"></div>
-                    <div><label for="codigoCEP" class="block text-gray-700 font-medium mb-2">Código CEP:</label><input type="text" id="codigoCEP" class="w-full px-4 py-2 border rounded-lg"></div>
-                    <button type="submit" class="w-full px-6 py-3 bg-green-500 text-white font-semibold rounded-lg shadow-md hover:bg-green-600">Guardar Cliente</button>
-                </form>
-                <button id="backToClientesBtn" class="mt-4 w-full px-6 py-3 bg-gray-400 text-white font-semibold rounded-lg shadow-md hover:bg-gray-500">Volver</button>
-            </div></div></div>`;
-        _populateDropdown('sectores', 'sector', 'Sector');
-        document.getElementById('clienteForm').addEventListener('submit', agregarCliente);
-        document.getElementById('backToClientesBtn').addEventListener('click', showClientesSubMenu);
-    }
+                    </form>
+                </div>
+            </div>
+        </div>
+    `;
 
-    /**
-     * Guarda un nuevo cliente en Firestore.
-     */
-    async function agregarCliente(e) {
+    document.getElementById('cancelAddCliente').addEventListener('click', window.showClientesSubMenu);
+    document.getElementById('clienteForm').addEventListener('submit', async (e) => {
         e.preventDefault();
-        const form = e.target;
-        const nombreComercial = form.nombreComercial.value.trim();
-        if (_clientesCache.find(c => c.nombreComercial.toLowerCase() === nombreComercial.toLowerCase())) {
-            _showModal('Cliente Duplicado', `Ya existe un cliente con el nombre comercial "${nombreComercial}".`);
-            return;
-        }
-        try {
-            await _addDoc(_collection(_db, `artifacts/${_appId}/users/${_userId}/clientes`), {
-                sector: form.sector.value,
-                nombreComercial: nombreComercial,
-                nombrePersonal: form.nombrePersonal.value.trim(),
-                telefono: form.telefono.value.trim(),
-                codigoCEP: form.codigoCEP.value.trim()
-            });
-            _showModal('Éxito', 'Cliente agregado correctamente.');
-            form.reset();
-        } catch (error) {
-            _showModal('Error', 'Hubo un error al guardar el cliente.');
-        }
-    }
-
-    /**
-     * Muestra la lista de todos los clientes con opciones de búsqueda y filtro.
-     */
-    function showVerClientesView() {
-        _mainContent.innerHTML = `
-            <div class="p-4 pt-8"><div class="container mx-auto"><div class="bg-white/90 backdrop-blur-sm p-8 rounded-lg shadow-xl">
-                <h2 class="text-2xl font-bold text-gray-800 mb-6 text-center">Lista de Clientes</h2>
-                <div id="clientes-filters" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4"></div>
-                <div id="clientesListContainer" class="overflow-y-auto max-h-96"></div>
-                <button id="backToClientesBtn" class="mt-6 w-full px-6 py-3 bg-gray-400 text-white rounded-lg shadow-md hover:bg-gray-500">Volver</button>
-            </div></div></div>`;
-        
-        const filtersContainer = document.getElementById('clientes-filters');
-        filtersContainer.innerHTML = `<input type="text" id="search-input" placeholder="Buscar por nombre..." class="w-full px-4 py-2 border rounded-lg md:col-span-2">`;
-        
-        const renderList = () => {
-            const searchTerm = document.getElementById('search-input').value.toLowerCase();
-            const filtered = _clientesCache.filter(c => c.nombreComercial.toLowerCase().includes(searchTerm) || (c.nombrePersonal && c.nombrePersonal.toLowerCase().includes(searchTerm)));
-            renderClientesTable('clientesListContainer', filtered);
+        const nuevoCliente = {
+            nombreComercial: document.getElementById('nombreComercial').value.trim(),
+            nombrePersonal: document.getElementById('nombrePersonal').value.trim(),
+            telefono: document.getElementById('telefono').value.trim(),
+            sector: document.getElementById('sector').value.trim(),
+            codigoCep: document.getElementById('codigoCep').value.trim(),
+            createdAt: new Date()
         };
-        
-        document.getElementById('search-input').addEventListener('input', renderList);
-        document.getElementById('backToClientesBtn').addEventListener('click', showClientesSubMenu);
-        renderList();
-    }
-    
-    /**
-     * Renderiza una tabla con la lista de clientes.
-     */
-    function renderClientesTable(containerId, clientes) {
-        const container = document.getElementById(containerId);
-        if (clientes.length === 0) {
-            container.innerHTML = `<p class="text-center text-gray-500">No se encontraron clientes.</p>`;
+
+        if (!nuevoCliente.nombreComercial) {
+            dependencies.showModal('Error', 'El Nombre Comercial es obligatorio.');
             return;
         }
-        container.innerHTML = `
-            <table class="min-w-full bg-white text-sm"><thead class="bg-gray-100"><tr>
-                <th class="py-2 px-3 text-left">N. Comercial</th><th class="py-2 px-3 text-left">N. Personal</th>
-                <th class="py-2 px-3 text-left">Sector</th><th class="py-2 px-3 text-center">Acciones</th>
-            </tr></thead><tbody>
-            ${clientes.sort((a, b) => a.nombreComercial.localeCompare(b.nombreComercial)).map(cliente => `
-                <tr class="border-b"><td class="py-2 px-3">${cliente.nombreComercial}</td>
-                    <td class="py-2 px-3">${cliente.nombrePersonal || ''}</td>
-                    <td class="py-2 px-3">${cliente.sector || ''}</td>
-                    <td class="py-2 px-3 text-center">
-                        <button onclick="window.clientesModule.editCliente('${cliente.id}')" class="px-2 py-1 bg-yellow-500 text-white text-xs rounded hover:bg-yellow-600">Editar</button>
-                        <button onclick="window.clientesModule.deleteCliente('${cliente.id}')" class="px-2 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600">Eliminar</button>
-                    </td>
-                </tr>`).join('')}
-            </tbody></table>`;
-    }
 
-    /**
-     * Muestra el formulario para editar un cliente.
-     */
-    function editCliente(clienteId) {
-        const cliente = _clientesCache.find(c => c.id === clienteId);
-        if (!cliente) return;
+        try {
+            const collectionRef = dependencies.collection(dependencies.db, `artifacts/${dependencies.appId}/users/${dependencies.userId}/clientes`);
+            await dependencies.addDoc(collectionRef, nuevoCliente);
+            dependencies.showModal('Éxito', 'Cliente agregado correctamente.', showVerEditarClientes);
+        } catch (error) {
+            console.error("Error adding customer: ", error);
+            dependencies.showModal('Error', `No se pudo agregar el cliente: ${error.message}`);
+        }
+    });
+}
 
-        _mainContent.innerHTML = `
-            <div class="p-4 pt-8"><div class="container mx-auto"><div class="bg-white/90 backdrop-blur-sm p-8 rounded-lg shadow-xl text-center">
-                <h2 class="text-2xl font-bold text-gray-800 mb-6">Editar Cliente</h2>
-                <form id="editClienteForm" class="space-y-4 text-left">
-                    <div><label class="block">Sector:</label><select id="editSector" class="w-full px-4 py-2 border rounded-lg"></select></div>
-                    <div><label class="block">Nombre Comercial:</label><input type="text" id="editNombreComercial" value="${cliente.nombreComercial}" class="w-full px-4 py-2 border rounded-lg" required></div>
-                    <div><label class="block">Nombre Personal:</label><input type="text" id="editNombrePersonal" value="${cliente.nombrePersonal || ''}" class="w-full px-4 py-2 border rounded-lg"></div>
-                    <div><label class="block">Teléfono:</label><input type="tel" id="editTelefono" value="${cliente.telefono || ''}" class="w-full px-4 py-2 border rounded-lg"></div>
-                    <div><label class="block">Código CEP:</label><input type="text" id="editCodigoCEP" value="${cliente.codigoCEP || ''}" class="w-full px-4 py-2 border rounded-lg"></div>
-                    <button type="submit" class="w-full px-6 py-3 bg-blue-500 text-white rounded-lg">Guardar Cambios</button>
-                </form>
-                <button id="backToClientesBtn" class="mt-4 w-full px-6 py-3 bg-gray-400 text-white rounded-lg">Volver</button>
-            </div></div></div>`;
-        
-        _populateDropdown('sectores', 'editSector', 'Sector');
-        setTimeout(() => { document.getElementById('editSector').value = cliente.sector; }, 200);
-
-        document.getElementById('editClienteForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            try {
-                await _setDoc(_doc(_db, `artifacts/${_appId}/users/${_userId}/clientes`, clienteId), {
-                    sector: document.getElementById('editSector').value,
-                    nombreComercial: document.getElementById('editNombreComercial').value.trim(),
-                    nombrePersonal: document.getElementById('editNombrePersonal').value.trim(),
-                    telefono: document.getElementById('editTelefono').value.trim(),
-                    codigoCEP: document.getElementById('editCodigoCEP').value.trim()
-                }, { merge: true });
-                _showModal('Éxito', 'Cliente modificado.');
-                showVerClientesView();
-            } catch (error) {
-                _showModal('Error', 'No se pudo modificar el cliente.');
-            }
-        });
-        document.getElementById('backToClientesBtn').addEventListener('click', showVerClientesView);
-    };
-
-    /**
-     * Elimina un cliente.
-     */
-    function deleteCliente(clienteId) {
-        _showModal('Confirmar Eliminación', '¿Estás seguro de que deseas eliminar este cliente?', async () => {
-            try {
-                await _deleteDoc(_doc(_db, `artifacts/${_appId}/users/${_userId}/clientes`, clienteId));
-                _showModal('Éxito', 'Cliente eliminado.');
-                showVerClientesView();
-            } catch (error) {
-                _showModal('Error', 'No se pudo eliminar el cliente.');
-            }
-        });
-    };
+/**
+ * Fetches and displays all customers from Firestore in a table.
+ */
+async function showVerEditarClientes() {
+    dependencies.mainContent.innerHTML = `<div class="p-8 text-center"><h2 class="text-2xl font-bold text-gray-700">Cargando clientes...</h2></div>`;
     
-    // Adjuntar funciones al objeto window para que sean accesibles desde el HTML
-    window.clientesModule = {
-        editCliente,
-        deleteCliente
-    };
+    try {
+        const collectionRef = dependencies.collection(dependencies.db, `artifacts/${dependencies.appId}/users/${dependencies.userId}/clientes`);
+        const q = dependencies.query(collectionRef);
+        const snapshot = await dependencies.getDocs(q);
+        
+        const docs = snapshot.docs.sort((a, b) => {
+            const nameA = a.data().nombreComercial.toUpperCase();
+            const nameB = b.data().nombreComercial.toUpperCase();
+            if (nameA < nameB) return -1;
+            if (nameA > nameB) return 1;
+            return 0;
+        });
 
-})();
+        let clientesHtml = `
+            <div class="p-4 animate-fade-in">
+                <div class="container mx-auto">
+                    <div class="bg-white/90 p-6 md:p-8 rounded-lg shadow-xl">
+                        <div class="flex flex-col md:flex-row justify-between items-center mb-6">
+                            <h2 class="text-2xl font-bold text-gray-800">Lista de Clientes</h2>
+                            <button id="backToClientesMenu" class="mt-4 md:mt-0 w-full md:w-auto px-4 py-2 bg-gray-400 text-white font-semibold rounded-lg shadow-md hover:bg-gray-500">Volver</button>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full bg-transparent">
+                                <thead class="bg-gray-200/80">
+                                    <tr>
+                                        <th class="py-3 px-4 border-b text-left text-sm font-bold text-gray-600">Nombre Comercial</th>
+                                        <th class="py-3 px-4 border-b text-left text-sm font-bold text-gray-600 hidden md:table-cell">Nombre Personal</th>
+                                        <th class="py-3 px-4 border-b text-left text-sm font-bold text-gray-600 hidden md:table-cell">Código CEP</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+        `;
+
+        if (docs.length === 0) {
+            clientesHtml += `<tr><td colspan="3" class="text-center py-6 text-gray-500">No hay clientes registrados.</td></tr>`;
+        } else {
+            docs.forEach(doc => {
+                const cliente = doc.data();
+                clientesHtml += `
+                    <tr class="hover:bg-gray-100/80">
+                        <td class="py-3 px-4 border-b border-gray-200 font-medium text-gray-800">${cliente.nombreComercial}</td>
+                        <td class="py-3 px-4 border-b border-gray-200 text-gray-600 hidden md:table-cell">${cliente.nombrePersonal || '-'}</td>
+                        <td class="py-3 px-4 border-b border-gray-200 text-gray-600 hidden md:table-cell">${cliente.codigoCep || '-'}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        clientesHtml += `
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        dependencies.mainContent.innerHTML = clientesHtml;
+        document.getElementById('backToClientesMenu').addEventListener('click', window.showClientesSubMenu);
+
+    } catch (error) {
+        console.error("Error fetching customers: ", error);
+        dependencies.showModal('Error', `No se pudieron cargar los clientes: ${error.message}`);
+    }
+}
+
 
