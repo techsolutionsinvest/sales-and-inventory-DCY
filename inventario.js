@@ -77,6 +77,13 @@
                              <button id="modificarDatosBtn" class="w-full px-6 py-3 bg-yellow-500 text-gray-800 font-semibold rounded-lg shadow-md hover:bg-yellow-600 transition duration-300 transform hover:scale-105">
                                 Modificar Datos Maestros
                             </button>
+                            <button id="downloadTemplateBtn" class="w-full px-6 py-3 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 transition duration-300 transform hover:scale-105">
+                                Descargar Plantilla Excel
+                            </button>
+                            <button id="uploadExcelBtn" class="w-full px-6 py-3 bg-green-800 text-white font-semibold rounded-lg shadow-md hover:bg-green-900 transition duration-300 transform hover:scale-105">
+                                Cargar Inventario desde Excel
+                            </button>
+                            <input type="file" id="excel-file-input" class="hidden" accept=".xlsx, .xls">
                             <button id="backToMenuBtn" class="w-full px-6 py-3 bg-gray-400 text-white font-semibold rounded-lg shadow-md hover:bg-gray-500 transition duration-300 transform hover:scale-105">
                                 Volver al Menú Principal
                             </button>
@@ -94,6 +101,9 @@
         document.getElementById('ajusteMasivoBtn').addEventListener('click', showAjusteMasivoView);
         document.getElementById('ordenarSegmentosBtn').addEventListener('click', showOrdenarSegmentosView);
         document.getElementById('modificarDatosBtn').addEventListener('click', showModificarDatosView);
+        document.getElementById('downloadTemplateBtn').addEventListener('click', downloadExcelTemplate);
+        document.getElementById('uploadExcelBtn').addEventListener('click', () => document.getElementById('excel-file-input').click());
+        document.getElementById('excel-file-input').addEventListener('change', handleFileUpload);
         document.getElementById('backToMenuBtn').addEventListener('click', _showMainMenu);
     }
     
@@ -222,6 +232,171 @@
         }
     }
     
+    /**
+     * Genera y descarga una plantilla de Excel para la carga de inventario.
+     */
+    function downloadExcelTemplate() {
+        const headers = ["Rubro", "Segmento", "Marca", "Presentacion", "TipoUnidad", "PrecioUSD", "Cantidad", "TipoIVA"];
+        const exampleData = [
+            ["Cerveceria y Vinos", "Cervezas", "Polar", "Pilsen Retornable 300ml", "cj.", 24.00, 50, 16],
+            ["Cerveceria y Vinos", "Cervezas", "Polar", "Light Lata 355ml", "cj.", 18.50, 75, 16],
+            ["Cerveceria y Vinos", "Vinos", "Santa Teresa", "Tinto de Verano 1.75L", "und.", 5.50, 30, 16],
+            ["Alimentos", "Harinas", "P.A.N.", "Harina de Maíz Blanco 1kg", "und.", 1.20, 200, 0],
+            ["P&G", "Cuidado del Hogar", "Ariel", "Detergente en Polvo 2kg", "und.", 8.75, 40, 16]
+        ];
+
+        const data = [headers, ...exampleData];
+        
+        const ws = XLSX.utils.aoa_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Inventario");
+        XLSX.writeFile(wb, "Plantilla_Inventario.xlsx");
+    }
+
+    /**
+     * Handles the file upload event when a user selects an Excel file.
+     */
+    function handleFileUpload(event) {
+        const file = event.target.files[0];
+        if (!file) {
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                const jsonData = XLSX.utils.sheet_to_json(worksheet);
+                processExcelData(jsonData);
+            } catch (error) {
+                console.error("Error reading or processing Excel file:", error);
+                _showModal('Error', 'No se pudo leer el archivo de Excel. Asegúrate de que tenga el formato correcto.');
+            }
+        };
+        reader.onerror = function() {
+            _showModal('Error', 'Hubo un error al leer el archivo.');
+        };
+        reader.readAsArrayBuffer(file);
+        
+        event.target.value = '';
+    }
+
+    /**
+     * Processes the data extracted from the Excel file, validates it, and prepares it for Firestore.
+     */
+    function processExcelData(data) {
+        if (data.length === 0) {
+            _showModal('Aviso', 'El archivo de Excel está vacío o no tiene datos.');
+            return;
+        }
+
+        const expectedHeaders = ["Rubro", "Segmento", "Marca", "Presentacion", "TipoUnidad", "PrecioUSD", "Cantidad", "TipoIVA"];
+        const actualHeaders = Object.keys(data[0]);
+        const hasAllHeaders = expectedHeaders.every(header => actualHeaders.includes(header));
+
+        if (!hasAllHeaders) {
+            _showModal('Error de Formato', `El archivo de Excel no tiene los encabezados correctos. Asegúrate de que la primera fila contenga: ${expectedHeaders.join(', ')}`);
+            return;
+        }
+
+        const productsToUpdate = [];
+        const errors = [];
+
+        data.forEach((row, index) => {
+            const producto = {
+                rubro: row.Rubro?.toString().trim(),
+                segmento: row.Segmento?.toString().trim(),
+                marca: row.Marca?.toString().trim(),
+                presentacion: row.Presentacion?.toString().trim(),
+                unidadTipo: row.TipoUnidad?.toString().trim(),
+                precio: parseFloat(row.PrecioUSD),
+                cantidad: parseInt(row.Cantidad, 10),
+                iva: parseInt(row.TipoIVA, 10)
+            };
+
+            if (!producto.rubro || !producto.segmento || !producto.marca || !producto.presentacion) {
+                errors.push(`Fila ${index + 2}: Faltan datos de texto obligatorios (Rubro, Segmento, Marca, Presentación).`);
+            } else if (isNaN(producto.precio) || isNaN(producto.cantidad) || isNaN(producto.iva)) {
+                errors.push(`Fila ${index + 2}: Precio, Cantidad o IVA no son números válidos.`);
+            } else if (!['und.', 'cj.'].includes(producto.unidadTipo)) {
+                errors.push(`Fila ${index + 2}: TipoUnidad debe ser 'und.' o 'cj.'.`);
+            } else if (![0, 16].includes(producto.iva)) {
+                errors.push(`Fila ${index + 2}: TipoIVA debe ser 0 o 16.`);
+            } else {
+                productsToUpdate.push(producto);
+            }
+        });
+
+        if (errors.length > 0) {
+            _showModal('Errores en el Archivo', `<div class="text-left max-h-40 overflow-y-auto">${errors.join('<br>')}</div>`);
+            return;
+        }
+
+        updateInventoryFromExcel(productsToUpdate);
+    }
+
+    /**
+     * Updates the Firestore database with the products from the Excel file.
+     */
+    async function updateInventoryFromExcel(products) {
+        _showModal('Confirmar Carga', `
+            <p>Se encontraron ${products.length} productos en el archivo de Excel.</p>
+            <p class="mt-2 font-bold text-red-600">¡Atención! Esta acción sobrescribirá los productos existentes que coincidan. Los productos nuevos serán creados.</p>
+            <p class="mt-2">¿Deseas continuar con la actualización del inventario?</p>
+        `, async () => {
+            _showModal('Progreso', 'Actualizando inventario... Por favor, no cierres la aplicación.');
+
+            try {
+                const batch = _writeBatch(_db);
+                const inventarioRef = _collection(_db, `artifacts/${_appId}/users/${_userId}/inventario`);
+
+                const addMasterData = async (collectionName, name, localBatch) => {
+                    const masterRef = _collection(_db, `artifacts/${_appId}/users/${_userId}/${collectionName}`);
+                    const q = _query(masterRef, _where("name", "==", name));
+                    const snapshot = await _getDocs(q);
+                    if (snapshot.empty) {
+                        const newDocRef = _doc(masterRef);
+                        localBatch.set(newDocRef, { name: name });
+                    }
+                };
+
+                for (const producto of products) {
+                    await addMasterData('rubros', producto.rubro, batch);
+                    await addMasterData('segmentos', producto.segmento, batch);
+                    await addMasterData('marcas', producto.marca, batch);
+
+                    const q = _query(inventarioRef,
+                        _where("rubro", "==", producto.rubro),
+                        _where("segmento", "==", producto.segmento),
+                        _where("marca", "==", producto.marca),
+                        _where("presentacion", "==", producto.presentacion),
+                        _where("unidadTipo", "==", producto.unidadTipo)
+                    );
+
+                    const snapshot = await _getDocs(q);
+                    if (snapshot.empty) {
+                        const newDocRef = _doc(inventarioRef);
+                        batch.set(newDocRef, producto);
+                    } else {
+                        const docId = snapshot.docs[0].id;
+                        const docRef = _doc(inventarioRef, docId);
+                        batch.set(docRef, producto);
+                    }
+                }
+
+                await batch.commit();
+                _showModal('Éxito', 'El inventario se ha actualizado correctamente desde el archivo de Excel.');
+                showInventarioSubMenu();
+            } catch (error) {
+                console.error("Error updating inventory from Excel:", error);
+                _showModal('Error', `Ocurrió un error al actualizar el inventario: ${error.message}`);
+            }
+        }, 'Sí, Actualizar');
+    }
+
     /**
      * Añade los manejadores de eventos para la funcionalidad de arrastrar y soltar.
      */
