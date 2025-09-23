@@ -159,15 +159,16 @@
         import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, getDoc, addDoc, setDoc, deleteDoc, onSnapshot, collection, setLogLevel, writeBatch, runTransaction, getDocs, enableIndexedDbPersistence, query, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Configuración de Firebase
+        // Your web app's Firebase configuration
+        // For Firebase JS SDK v7.20.0 and later, measurementId is optional
         const firebaseConfig = {
-            apiKey: "AIzaSyAiitXEEekD-7FD7kDxDIcRbxlClsF5gHU",
-            authDomain: "ventas-9a210.firebaseapp.com",
-            projectId: "ventas-9a210",
-            storageBucket: "ventas-9a210.firebasestorage.app",
-            messagingSenderId: "815890981146",
-            appId: "1:815890981146:web:938fe5e09babe511e98ca3",
-            measurementId: "G-N0QXG70WM1"
+          apiKey: "AIzaSyCJVrgqdRvLC62oAXdsbHeKAwc5GrS3HoI",
+          authDomain: "sales-and-inventory-dcy.firebaseapp.com",
+          projectId: "sales-and-inventory-dcy",
+          storageBucket: "sales-and-inventory-dcy.firebasestorage.app",
+          messagingSenderId: "396823869419",
+          appId: "1:396823869419:web:9cd3e08e040e365a4e0bae",
+          measurementId: "G-27CFBQH07Y"
         };
         const appId = firebaseConfig.appId;
 
@@ -426,4 +427,3 @@
     </script>
 </body>
 </html>
-
