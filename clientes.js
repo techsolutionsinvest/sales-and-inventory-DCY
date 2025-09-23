@@ -32,6 +32,7 @@ window.showClientesSubMenu = function() {
                         <button id="addClienteBtn" class="w-full px-6 py-3 bg-blue-500 text-white font-semibold rounded-lg shadow-md hover:bg-blue-600 transition-transform transform hover:scale-105">Agregar Cliente Manualmente</button>
                         <button id="viewClientesBtn" class="w-full px-6 py-3 bg-indigo-500 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-600 transition-transform transform hover:scale-105">Ver / Editar Clientes</button>
                         <button id="importClientesBtn" class="w-full px-6 py-3 bg-teal-500 text-white font-semibold rounded-lg shadow-md hover:bg-teal-600 transition-transform transform hover:scale-105">Importar Clientes desde Archivo</button>
+                        <button id="edicionMasivaBtn" class="w-full px-6 py-3 bg-yellow-600 text-white font-semibold rounded-lg shadow-md hover:bg-yellow-700 transition-transform transform hover:scale-105">Edición Masiva de Clientes</button>
                         <button id="backToMainMenuBtn" class="mt-4 w-full px-6 py-2 bg-gray-400 text-white font-semibold rounded-lg shadow-md hover:bg-gray-500 transition-transform transform hover:scale-105">Volver al Menú</button>
                     </div>
                 </div>
@@ -40,14 +41,15 @@ window.showClientesSubMenu = function() {
     `;
 
     // Attach event listeners
-    document.getElementById('addClienteBtn').addEventListener('click', () => showClienteForm()); // Changed to generic form
+    document.getElementById('addClienteBtn').addEventListener('click', () => showClienteForm(null, window.showClientesSubMenu));
     document.getElementById('viewClientesBtn').addEventListener('click', showVerEditarClientes);
     document.getElementById('importClientesBtn').addEventListener('click', showImportarClientesView);
+    document.getElementById('edicionMasivaBtn').addEventListener('click', showEdicionMasivaView);
     document.getElementById('backToMainMenuBtn').addEventListener('click', dependencies.showMainMenu);
 };
 
 /**
- * Fetches all customer data from Firestore and renders the main list view with search and filter controls.
+ * Fetches all customer and sector data from Firestore and renders the main list view.
  */
 async function showVerEditarClientes() {
     dependencies.mainContent.innerHTML = `<div class="p-8 text-center"><h2 class="text-2xl font-bold text-gray-700">Cargando clientes...</h2></div>`;
@@ -73,7 +75,7 @@ async function showVerEditarClientes() {
 }
 
 /**
- * Renders the HTML structure for the "Ver / Editar Clientes" page, including filters and action handlers.
+ * Renders the HTML structure for the "Ver / Editar Clientes" page.
  */
 function renderClientListView() {
     let sectorOptions = allSectors.map(sector => `<option value="${sector}">${sector}</option>`).join('');
@@ -98,8 +100,8 @@ function renderClientListView() {
                             <thead class="bg-gray-200/80">
                                 <tr>
                                     <th class="py-3 px-4 border-b text-left text-sm font-bold text-gray-600">Nombre Comercial</th>
-                                    <th class="py-3 px-4 border-b text-left text-sm font-bold text-gray-600">Nombre Personal</th>
-                                    <th class="py-3 px-4 border-b text-left text-sm font-bold text-gray-600 hidden md:table-cell">Sector</th>
+                                    <th class="py-3 px-4 border-b text-left text-sm font-bold text-gray-600 hidden md:table-cell">Teléfono</th>
+                                    <th class="py-3 px-4 border-b text-left text-sm font-bold text-gray-600 hidden md:table-cell">Código CEP</th>
                                     <th class="py-3 px-4 border-b text-center text-sm font-bold text-gray-600">Acciones</th>
                                 </tr>
                             </thead>
@@ -121,7 +123,6 @@ function renderClientListView() {
 
 /**
  * Handles clicks on the action buttons (edit, delete) in the client table.
- * @param {Event} e - The click event.
  */
 function handleTableActions(e) {
     const button = e.target.closest('button');
@@ -132,7 +133,7 @@ function handleTableActions(e) {
     const clientName = button.dataset.name;
 
     if (action === 'edit') {
-        showClienteForm(clientId);
+        showClienteForm(clientId, showVerEditarClientes); // Return to list after editing
     } else if (action === 'delete') {
         handleDeleteCliente(clientId, clientName);
     }
@@ -140,8 +141,6 @@ function handleTableActions(e) {
 
 /**
  * Deletes a client after user confirmation.
- * @param {string} clientId - The Firestore ID of the client to delete.
- * @param {string} clientName - The name of the client for the confirmation message.
  */
 function handleDeleteCliente(clientId, clientName) {
     const confirmationMessage = `¿Estás seguro de que quieres eliminar a <strong>${clientName}</strong>? Esta acción no se puede deshacer.`;
@@ -158,8 +157,7 @@ function handleDeleteCliente(clientId, clientName) {
 }
 
 /**
- * Renders the rows of the client table based on a provided array of clients.
- * @param {Array<Object>} clients - The array of client objects to display.
+ * Renders the rows of the client table.
  */
 function renderClientTableRows(clients) {
     const tableBody = document.getElementById('client-table-body');
@@ -174,14 +172,14 @@ function renderClientTableRows(clients) {
             rowsHtml += `
                 <tr class="hover:bg-gray-100/80">
                     <td class="py-3 px-4 border-b border-gray-200 font-medium text-gray-800">${cliente.nombreComercial}</td>
-                    <td class="py-3 px-4 border-b border-gray-200 text-gray-600">${cliente.nombrePersonal || '-'}</td>
-                    <td class="py-3 px-4 border-b border-gray-200 text-gray-600 hidden md:table-cell">${cliente.sector || '-'}</td>
+                    <td class="py-3 px-4 border-b border-gray-200 text-gray-600 hidden md:table-cell">${cliente.telefono || '-'}</td>
+                    <td class="py-3 px-4 border-b border-gray-200 text-gray-600 hidden md:table-cell">${cliente.codigoCep || '-'}</td>
                     <td class="py-3 px-4 border-b border-gray-200 text-center">
                         <button data-action="edit" data-id="${cliente.id}" class="p-2 text-blue-600 hover:text-blue-800" title="Editar">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L14.732 3.732z"></path></svg>
+                            <svg class="w-5 h-5 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L14.732 3.732z"></path></svg>
                         </button>
                         <button data-action="delete" data-id="${cliente.id}" data-name="${cliente.nombreComercial}" class="p-2 text-red-600 hover:text-red-800" title="Eliminar">
-                           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                           <svg class="w-5 h-5 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                         </button>
                     </td>
                 </tr>
@@ -192,7 +190,7 @@ function renderClientTableRows(clients) {
 }
 
 /**
- * Filters the client list based on search and sector inputs and re-renders the table.
+ * Filters the client list and re-renders the table.
  */
 function filterClients() {
     const searchTerm = document.getElementById('searchInput').value.toUpperCase();
@@ -209,10 +207,9 @@ function filterClients() {
 }
 
 /**
- * Displays a form for either adding a new customer or editing an existing one.
- * @param {string|null} clientId - The ID of the client to edit, or null to add a new one.
+ * Displays a form for adding or editing a customer.
  */
-async function showClienteForm(clientId = null) {
+async function showClienteForm(clientId = null, onCancelCallback = window.showClientesSubMenu) {
     const isEditing = clientId !== null;
     let clientData = {};
 
@@ -221,57 +218,43 @@ async function showClienteForm(clientId = null) {
     if (isEditing) {
         const docRef = dependencies.doc(dependencies.db, `artifacts/${dependencies.appId}/users/${dependencies.userId}/clientes`, clientId);
         const docSnap = await dependencies.getDoc(docRef);
-        if (docSnap.exists()) {
-            clientData = docSnap.data();
-        } else {
-            dependencies.showModal('Error', 'No se encontró el cliente para editar.');
-            return;
-        }
+        clientData = docSnap.exists() ? docSnap.data() : {};
     }
 
     let sectorOptionsHtml = allSectors.map(sector => `<option value="${sector}" ${clientData.sector === sector ? 'selected' : ''}>${sector}</option>`).join('');
 
     dependencies.mainContent.innerHTML = `
-        <div class="p-4 animate-fade-in">
-            <div class="container mx-auto max-w-2xl">
-                <div class="bg-white/90 p-8 rounded-lg shadow-xl">
-                    <h2 class="text-2xl font-bold mb-6 text-center">${isEditing ? 'Editar Cliente' : 'Agregar Nuevo Cliente'}</h2>
-                    <form id="clienteForm" class="space-y-4">
-                        <input type="text" id="nombreComercial" placeholder="Nombre Comercial (Requerido)" class="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500" value="${clientData.nombreComercial || ''}" required>
-                        <input type="text" id="nombrePersonal" placeholder="Nombre Personal" class="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500" value="${clientData.nombrePersonal || ''}">
-                        <input type="tel" id="telefono" placeholder="Teléfono" class="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500" value="${clientData.telefono || ''}">
-                        <div>
-                            <label for="sector" class="block text-sm font-medium text-gray-700 mb-1">Sector</label>
-                            <div class="flex items-center gap-2">
-                                <select id="sector" class="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500">
-                                    <option value="">Seleccione un sector...</option>
-                                    ${sectorOptionsHtml}
-                                </select>
-                                <button type="button" id="addSectorBtn" class="flex-shrink-0 p-3 bg-green-500 text-white rounded-lg hover:bg-green-600 text-xl font-bold leading-none">+</button>
-                            </div>
-                        </div>
-                        <div>
-                             <label for="codigoCep" class="block text-sm font-medium text-gray-700 mb-1">Código CEP</label>
-                             <div class="flex items-center gap-2">
-                                <input type="text" id="codigoCep" placeholder="Código CEP" class="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500" value="${clientData.codigoCep || ''}">
-                                <div class="flex items-center">
-                                    <input id="cepNA" type="checkbox" class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
-                                    <label for="cepNA" class="ml-2 block text-sm text-gray-900">N/A</label>
-                                </div>
-                             </div>
-                        </div>
-                        <div class="flex justify-between items-center pt-4">
-                            <button type="button" id="cancelForm" class="px-6 py-2 bg-gray-400 text-white font-semibold rounded-lg shadow-md hover:bg-gray-500">Cancelar</button>
-                            <button type="submit" class="px-6 py-2 bg-blue-500 text-white font-semibold rounded-lg shadow-md hover:bg-blue-600">Guardar Cambios</button>
-                        </div>
-                    </form>
+        <div class="p-4 animate-fade-in"><div class="container mx-auto max-w-2xl"><div class="bg-white/90 p-8 rounded-lg shadow-xl">
+            <h2 class="text-2xl font-bold mb-6 text-center">${isEditing ? 'Editar Cliente' : 'Agregar Nuevo Cliente'}</h2>
+            <form id="clienteForm" class="space-y-4">
+                <input type="text" id="nombreComercial" placeholder="Nombre Comercial (Requerido)" class="w-full p-3 border rounded-lg" value="${clientData.nombreComercial || ''}" required>
+                <input type="text" id="nombrePersonal" placeholder="Nombre Personal" class="w-full p-3 border rounded-lg" value="${clientData.nombrePersonal || ''}">
+                <input type="tel" id="telefono" placeholder="Teléfono" class="w-full p-3 border rounded-lg" value="${clientData.telefono || ''}">
+                <div>
+                    <label for="sector" class="block text-sm font-medium text-gray-700 mb-1">Sector</label>
+                    <div class="flex items-center gap-2">
+                        <select id="sector" class="w-full p-3 border rounded-lg"><option value="">Seleccione un sector...</option>${sectorOptionsHtml}</select>
+                        <button type="button" id="addSectorBtn" class="flex-shrink-0 p-3 bg-green-500 text-white rounded-lg hover:bg-green-600 text-xl font-bold leading-none">+</button>
+                    </div>
                 </div>
-            </div>
-        </div>
-    `;
+                <div>
+                     <label for="codigoCep" class="block text-sm font-medium text-gray-700 mb-1">Código CEP</label>
+                     <div class="flex items-center gap-2">
+                        <input type="text" id="codigoCep" placeholder="Código CEP" class="w-full p-3 border rounded-lg" value="${clientData.codigoCep || ''}">
+                        <div class="flex items-center">
+                            <input id="cepNA" type="checkbox" class="h-4 w-4 text-blue-600 border-gray-300 rounded"><label for="cepNA" class="ml-2 block text-sm text-gray-900">N/A</label>
+                        </div>
+                     </div>
+                </div>
+                <div class="flex justify-between items-center pt-4">
+                    <button type="button" id="cancelForm" class="px-6 py-2 bg-gray-400 text-white font-semibold rounded-lg shadow-md hover:bg-gray-500">Cancelar</button>
+                    <button type="submit" class="px-6 py-2 bg-blue-500 text-white font-semibold rounded-lg shadow-md hover:bg-blue-600">Guardar Cambios</button>
+                </div>
+            </form>
+        </div></div></div>`;
 
-    document.getElementById('cancelForm').addEventListener('click', showVerEditarClientes);
-    document.getElementById('addSectorBtn').addEventListener('click', () => showAddSectorModal(clientId));
+    document.getElementById('cancelForm').addEventListener('click', onCancelCallback);
+    document.getElementById('addSectorBtn').addEventListener('click', () => showAddSectorModal(clientId, onCancelCallback));
 
     const cepInput = document.getElementById('codigoCep');
     const cepNACheckbox = document.getElementById('cepNA');
@@ -281,15 +264,9 @@ async function showClienteForm(clientId = null) {
         cepInput.classList.add('bg-gray-200');
     }
     cepNACheckbox.addEventListener('change', (e) => {
-        if (e.target.checked) {
-            cepInput.value = 'N/A';
-            cepInput.disabled = true;
-            cepInput.classList.add('bg-gray-200');
-        } else {
-            cepInput.value = '';
-            cepInput.disabled = false;
-            cepInput.classList.remove('bg-gray-200');
-        }
+        cepInput.disabled = e.target.checked;
+        cepInput.value = e.target.checked ? 'N/A' : '';
+        cepInput.classList.toggle('bg-gray-200', e.target.checked);
     });
 
     document.getElementById('clienteForm').addEventListener('submit', async (e) => {
@@ -305,40 +282,35 @@ async function showClienteForm(clientId = null) {
             dependencies.showModal('Error', 'El Nombre Comercial es obligatorio.');
             return;
         }
-
         try {
+            const successMessage = isEditing ? 'Cliente actualizado correctamente.' : 'Cliente agregado correctamente.';
             if (isEditing) {
                 const docRef = dependencies.doc(dependencies.db, `artifacts/${dependencies.appId}/users/${dependencies.userId}/clientes`, clientId);
                 await dependencies.updateDoc(docRef, clientPayload);
-                dependencies.showModal('Éxito', 'Cliente actualizado correctamente.', showVerEditarClientes);
             } else {
                 clientPayload.createdAt = new Date();
                 const collectionRef = dependencies.collection(dependencies.db, `artifacts/${dependencies.appId}/users/${dependencies.userId}/clientes`);
                 await dependencies.addDoc(collectionRef, clientPayload);
-                dependencies.showModal('Éxito', 'Cliente agregado correctamente.', showVerEditarClientes);
             }
+            dependencies.showModal('Éxito', successMessage, showVerEditarClientes);
         } catch (error) {
-            console.error("Error saving customer: ", error);
             dependencies.showModal('Error', `No se pudo guardar el cliente: ${error.message}`);
         }
     });
 }
 
 /**
- * Shows a modal to add a new sector to the database.
- * @param {string|null} clientId - The ID of the client being edited, to return to the form after.
+ * Shows a modal to add a new sector.
  */
-function showAddSectorModal(clientId) {
+function showAddSectorModal(clientId, onCancelCallback) {
     dependencies.modalContent.innerHTML = `
         <h3 class="text-xl font-bold text-gray-800 mb-4">Agregar Nuevo Sector</h3>
-        <form id="addSectorForm">
-            <input type="text" id="newSectorName" placeholder="Nombre del Sector" class="w-full p-3 border rounded-lg" required>
+        <form id="addSectorForm"><input type="text" id="newSectorName" placeholder="Nombre del Sector" class="w-full p-3 border rounded-lg" required>
             <div class="flex justify-end gap-4 mt-6">
                 <button type="button" id="closeModalBtn" class="px-4 py-2 bg-gray-300 text-gray-800 rounded-lg hover:bg-gray-400">Cerrar</button>
                 <button type="submit" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">Guardar</button>
             </div>
-        </form>
-    `;
+        </form>`;
     dependencies.modalContainer.classList.remove('hidden');
     document.getElementById('closeModalBtn').addEventListener('click', () => dependencies.modalContainer.classList.add('hidden'));
     document.getElementById('addSectorForm').addEventListener('submit', async (e) => {
@@ -349,11 +321,107 @@ function showAddSectorModal(clientId) {
                 const sectorsRef = dependencies.collection(dependencies.db, `artifacts/${dependencies.appId}/users/${dependencies.userId}/sectores`);
                 await dependencies.addDoc(sectorsRef, { name: newName });
                 dependencies.modalContainer.classList.add('hidden');
-                await showClienteForm(clientId);
+                allSectors.push(newName); // Update local cache
+                allSectors.sort();
+                await showClienteForm(clientId, onCancelCallback);
             } catch (err) { console.error("Error adding sector:", err); }
         }
     });
 }
+
+
+// --- BULK EDITING FUNCTIONS ---
+
+/**
+ * Displays the view for bulk editing/deleting customers.
+ */
+function showEdicionMasivaView() {
+    let sectorOptions = allSectors.map(sector => `<option value="${sector}">${sector}</option>`).join('');
+    dependencies.mainContent.innerHTML = `
+        <div class="p-4 animate-fade-in"><div class="container mx-auto max-w-2xl"><div class="bg-white/90 p-8 rounded-lg shadow-xl">
+            <h2 class="text-2xl font-bold mb-6 text-center">Edición Masiva de Clientes</h2>
+            <div class="space-y-6">
+                <!-- Delete by Sector -->
+                <div class="border p-4 rounded-lg">
+                    <h3 class="font-semibold text-lg mb-2">Eliminar Clientes por Sector</h3>
+                    <div class="flex items-center gap-2">
+                        <select id="sectorToDelete" class="w-full p-3 border rounded-lg"><option value="">Seleccione un sector...</option>${sectorOptions}</select>
+                        <button id="deleteBySectorBtn" class="px-4 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600">Eliminar</button>
+                    </div>
+                </div>
+                <!-- Delete All -->
+                <div class="border p-4 rounded-lg bg-red-50">
+                    <h3 class="font-semibold text-lg mb-2 text-red-800">Eliminar Todos los Clientes</h3>
+                    <p class="text-sm text-red-700 mb-4">Esta acción es irreversible y eliminará permanentemente a todos los clientes de su base de datos.</p>
+                    <button id="deleteAllBtn" class="w-full px-6 py-3 bg-red-700 text-white font-bold rounded-lg shadow-md hover:bg-red-800">ELIMINAR TODO</button>
+                </div>
+            </div>
+            <button id="backToClientesMenu" class="mt-8 w-full px-6 py-2 bg-gray-400 text-white font-semibold rounded-lg shadow-md hover:bg-gray-500">Volver</button>
+        </div></div></div>`;
+    
+    document.getElementById('backToClientesMenu').addEventListener('click', window.showClientesSubMenu);
+    document.getElementById('deleteBySectorBtn').addEventListener('click', handleDeleteBySector);
+    document.getElementById('deleteAllBtn').addEventListener('click', handleDeleteAll);
+}
+
+/**
+ * Handles the logic for deleting all clients in a selected sector.
+ */
+async function handleDeleteBySector() {
+    const sector = document.getElementById('sectorToDelete').value;
+    if (!sector) {
+        dependencies.showModal('Acción Requerida', 'Por favor, seleccione un sector para eliminar.');
+        return;
+    }
+    
+    const clientsInSector = allClients.filter(c => c.sector === sector);
+    if (clientsInSector.length === 0) {
+        dependencies.showModal('Información', `No se encontraron clientes en el sector "${sector}".`);
+        return;
+    }
+    
+    const message = `Se eliminarán <strong>${clientsInSector.length}</strong> clientes del sector "<strong>${sector}</strong>". ¿Estás seguro?`;
+    dependencies.showModal('Confirmar Eliminación', message, async () => {
+        const batch = dependencies.writeBatch(dependencies.db);
+        clientsInSector.forEach(client => {
+            const docRef = dependencies.doc(dependencies.db, `artifacts/${dependencies.appId}/users/${dependencies.userId}/clientes`, client.id);
+            batch.delete(docRef);
+        });
+        await batch.commit();
+        dependencies.showModal('Éxito', `Se han eliminado los clientes del sector "${sector}".`, showVerEditarClientes);
+    }, 'Eliminar');
+}
+
+/**
+ * Handles the logic for deleting all clients.
+ */
+async function handleDeleteAll() {
+    const message = `¡ADVERTENCIA! Estás a punto de eliminar a <strong>TODOS (${allClients.length})</strong> los clientes. Esta acción es irreversible. ¿Estás absolutamente seguro?`;
+    dependencies.showModal('Confirmación Final', message, async () => {
+        // Firestore batch operations are limited to 500 documents.
+        // We need to process in chunks if there are more.
+        const clientsRef = dependencies.collection(dependencies.db, `artifacts/${dependencies.appId}/users/${dependencies.userId}/clientes`);
+        const snapshot = await dependencies.getDocs(clientsRef);
+        const batches = [];
+        let currentBatch = dependencies.writeBatch(dependencies.db);
+        let operationCount = 0;
+
+        snapshot.docs.forEach((doc, index) => {
+            currentBatch.delete(doc.ref);
+            operationCount++;
+            if (operationCount === 499) {
+                batches.push(currentBatch);
+                currentBatch = dependencies.writeBatch(dependencies.db);
+                operationCount = 0;
+            }
+        });
+        batches.push(currentBatch);
+
+        await Promise.all(batches.map(batch => batch.commit()));
+        dependencies.showModal('Éxito', 'Todos los clientes han sido eliminados.', showVerEditarClientes);
+    }, 'Sí, Eliminar Todo');
+}
+
 
 // --- IMPORT FUNCTIONS ---
 
@@ -390,7 +458,6 @@ async function handleFileUpload(event) {
             const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
             await procesarYGuardarClientes(rows);
         } catch (error) {
-            console.error("Error processing file: ", error);
             dependencies.showModal('Error al Procesar', `No se pudo leer el archivo. Error: ${error.message}`);
         }
     };
@@ -436,4 +503,5 @@ async function procesarYGuardarClientes(rows) {
     }
     dependencies.showModal('Sincronización Completa', `Se analizaron ${rows.length} filas.<br><strong>${clientesNuevosContador} clientes nuevos</strong> fueron importados.`, showVerEditarClientes);
 }
+
 
