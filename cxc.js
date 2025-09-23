@@ -263,27 +263,3 @@ function renderStatementView(client, transactions) {
 
     document.getElementById('backToCXCSearch').addEventListener('click', renderCXCSearchView);
 }
-```
-
-### 2. Instrucciones para `index.html`
-
-Para que este nuevo módulo funcione, solo necesitas hacer dos pequeños cambios en tu archivo principal `index.html`:
-
-**A. Importar el nuevo script:**
-Añade la siguiente línea junto a los otros scripts de tus módulos:
-```html
-<!-- ... dentro de tu index.html ... -->
-<script src="sincronizacion.js"></script>
-<script src="clientes.js"></script>
-<script src="ventas.js"></script>
-<script src="cxc.js"></script> <!-- AÑADIR ESTA LÍNEA -->
-```
-
-**B. Inicializar el módulo:**
-En el `script type="module"` de tu `index.html`, busca donde inicializas los otros módulos y añade la llamada para `initCXC`:
-```javascript
-// ... dentro de la función showMainView en index.html ...
-window.initSincronizacion(dependencies);
-window.initClientes(dependencies);
-window.initVentas(dependencies);
-window.initCXC(dependencies); // AÑADIR ESTA LÍNEA
