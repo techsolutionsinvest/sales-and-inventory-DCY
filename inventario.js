@@ -59,14 +59,11 @@
                     <div class="bg-white/90 backdrop-blur-sm p-8 rounded-lg shadow-xl text-center">
                         <h1 class="text-3xl font-bold text-gray-800 mb-6">Gestión de Inventario</h1>
                         <div class="space-y-4">
-                            <button id="verInventarioBtn" class="w-full px-6 py-3 bg-blue-500 text-white font-semibold rounded-lg shadow-md hover:bg-blue-600 transition duration-300 transform hover:scale-105">
-                                Ver Inventario
+                            <button id="verEditarInventarioBtn" class="w-full px-6 py-3 bg-blue-500 text-white font-semibold rounded-lg shadow-md hover:bg-blue-600 transition duration-300 transform hover:scale-105">
+                                Ver / Editar Inventario
                             </button>
                             <button id="agregarProductoBtn" class="w-full px-6 py-3 bg-blue-500 text-white font-semibold rounded-lg shadow-md hover:bg-blue-600 transition duration-300 transform hover:scale-105">
                                 Agregar Producto
-                            </button>
-                            <button id="modifyDeleteBtn" class="w-full px-6 py-3 bg-blue-500 text-white font-semibold rounded-lg shadow-md hover:bg-blue-600 transition duration-300 transform hover:scale-105">
-                                Modificar / Eliminar Producto
                             </button>
                             <button id="ajusteMasivoBtn" class="w-full px-6 py-3 bg-teal-500 text-white font-semibold rounded-lg shadow-md hover:bg-teal-600 transition duration-300 transform hover:scale-105">
                                 Ajuste Masivo de Cantidades
@@ -77,13 +74,9 @@
                              <button id="modificarDatosBtn" class="w-full px-6 py-3 bg-yellow-500 text-gray-800 font-semibold rounded-lg shadow-md hover:bg-yellow-600 transition duration-300 transform hover:scale-105">
                                 Modificar Datos Maestros
                             </button>
-                            <button id="downloadTemplateBtn" class="w-full px-6 py-3 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 transition duration-300 transform hover:scale-105">
-                                Descargar Plantilla Excel
+                            <button id="excelActionsBtn" class="w-full px-6 py-3 bg-green-700 text-white font-semibold rounded-lg shadow-md hover:bg-green-800 transition duration-300 transform hover:scale-105">
+                                Plantillas Excel (Carga y Descarga)
                             </button>
-                            <button id="uploadExcelBtn" class="w-full px-6 py-3 bg-green-800 text-white font-semibold rounded-lg shadow-md hover:bg-green-900 transition duration-300 transform hover:scale-105">
-                                Cargar Inventario desde Excel
-                            </button>
-                            <input type="file" id="excel-file-input" class="hidden" accept=".xlsx, .xls">
                             <button id="backToMenuBtn" class="w-full px-6 py-3 bg-gray-400 text-white font-semibold rounded-lg shadow-md hover:bg-gray-500 transition duration-300 transform hover:scale-105">
                                 Volver al Menú Principal
                             </button>
@@ -92,21 +85,51 @@
                 </div>
             </div>
         `;
-        document.getElementById('verInventarioBtn').addEventListener('click', showVerInventarioView);
-        document.getElementById('agregarProductoBtn').addEventListener('click', showAgregarProductoView);
-        document.getElementById('modifyDeleteBtn').addEventListener('click', () => {
+        document.getElementById('verEditarInventarioBtn').addEventListener('click', () => {
             _lastFilters = { searchTerm: '', rubro: '', segmento: '', marca: '' };
             showModifyDeleteView();
         });
+        document.getElementById('agregarProductoBtn').addEventListener('click', showAgregarProductoView);
         document.getElementById('ajusteMasivoBtn').addEventListener('click', showAjusteMasivoView);
         document.getElementById('ordenarSegmentosBtn').addEventListener('click', showOrdenarSegmentosView);
         document.getElementById('modificarDatosBtn').addEventListener('click', showModificarDatosView);
-        document.getElementById('downloadTemplateBtn').addEventListener('click', downloadExcelTemplate);
-        document.getElementById('uploadExcelBtn').addEventListener('click', () => document.getElementById('excel-file-input').click());
-        document.getElementById('excel-file-input').addEventListener('change', handleFileUpload);
+        document.getElementById('excelActionsBtn').addEventListener('click', showExcelSubMenu);
         document.getElementById('backToMenuBtn').addEventListener('click', _showMainMenu);
     }
     
+    /**
+     * Muestra el submenú para acciones de Excel (Cargar/Descargar).
+     */
+    function showExcelSubMenu() {
+        _floatingControls.classList.add('hidden');
+        _mainContent.innerHTML = `
+            <div class="p-4 pt-8">
+                <div class="container mx-auto">
+                    <div class="bg-white/90 backdrop-blur-sm p-8 rounded-lg shadow-xl text-center">
+                        <h1 class="text-3xl font-bold text-gray-800 mb-6">Plantillas Excel</h1>
+                        <p class="text-center text-gray-600 mb-6">Descarga la plantilla para llenar tu inventario o carga un archivo existente para actualizarlo masivamente.</p>
+                        <div class="space-y-4">
+                            <button id="downloadTemplateBtn" class="w-full px-6 py-3 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 transition duration-300 transform hover:scale-105">
+                                Descargar Plantilla
+                            </button>
+                            <button id="uploadExcelBtn" class="w-full px-6 py-3 bg-green-800 text-white font-semibold rounded-lg shadow-md hover:bg-green-900 transition duration-300 transform hover:scale-105">
+                                Cargar Inventario
+                            </button>
+                            <input type="file" id="excel-file-input" class="hidden" accept=".xlsx, .xls">
+                            <button id="backToInventarioBtn" class="w-full px-6 py-3 bg-gray-400 text-white font-semibold rounded-lg shadow-md hover:bg-gray-500 transition duration-300 transform hover:scale-105">
+                                Volver a Inventario
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.getElementById('downloadTemplateBtn').addEventListener('click', downloadExcelTemplate);
+        document.getElementById('uploadExcelBtn').addEventListener('click', () => document.getElementById('excel-file-input').click());
+        document.getElementById('excel-file-input').addEventListener('change', handleFileUpload);
+        document.getElementById('backToInventarioBtn').addEventListener('click', showInventarioSubMenu);
+    }
+
     /**
      * Obtiene y cachea el mapa de orden de los segmentos.
      */
@@ -891,37 +914,6 @@
     }
 
     /**
-     * Muestra la vista de "Ver Inventario".
-     */
-    function showVerInventarioView() {
-        _floatingControls.classList.add('hidden');
-        _mainContent.innerHTML = `
-            <div class="p-4 pt-8">
-                <div class="container mx-auto">
-                    <div class="bg-white/90 backdrop-blur-sm p-8 rounded-lg shadow-xl">
-                        <h2 class="text-2xl font-bold text-gray-800 mb-6 text-center">Ver Inventario</h2>
-                        <div class="mb-4">
-                           <label for="verInventarioRubroFilter" class="block text-gray-700 font-medium mb-2">Filtrar por Rubro:</label>
-                           <select id="verInventarioRubroFilter" class="w-full px-4 py-2 border rounded-lg">
-                               <option value="">Todos los Rubros</option>
-                           </select>
-                        </div>
-                        <div id="productosListContainer" class="overflow-x-auto max-h-96">
-                            <p class="text-gray-500 text-center">Cargando productos...</p>
-                        </div>
-                        <button id="backToInventarioBtn" class="mt-6 w-full px-6 py-3 bg-gray-400 text-white font-semibold rounded-lg shadow-md hover:bg-gray-500">Volver</button>
-                    </div>
-                </div>
-            </div>
-        `;
-        document.getElementById('backToInventarioBtn').addEventListener('click', showInventarioSubMenu);
-        const rubroFilter = document.getElementById('verInventarioRubroFilter');
-        _populateDropdown('rubros', 'verInventarioRubroFilter', 'Rubro');
-        rubroFilter.addEventListener('change', () => renderProductosList('productosListContainer', true));
-        renderProductosList('productosListContainer', true);
-    }
-
-    /**
      * Muestra la vista para modificar o eliminar un producto.
      */
     function showModifyDeleteView() {
@@ -930,7 +922,7 @@
             <div class="p-4 pt-8">
                 <div class="container mx-auto">
                     <div class="bg-white/90 backdrop-blur-sm p-8 rounded-lg shadow-xl">
-                        <h2 class="text-2xl font-bold text-gray-800 mb-6 text-center">Modificar / Eliminar Producto</h2>
+                        <h2 class="text-2xl font-bold text-gray-800 mb-6 text-center">Ver / Editar Inventario</h2>
                         
                         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6 p-4 border rounded-lg">
                             <input type="text" id="search-input" placeholder="Buscar por presentación..." class="md:col-span-4 w-full px-4 py-2 border rounded-lg">
