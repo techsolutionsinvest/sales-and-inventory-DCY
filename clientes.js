@@ -1,7 +1,7 @@
 /**
  * Clientes.js
  * This module handles all functionality related to customer management,
- * including adding, viewing, filtering, and importing customers from a structured Excel/CSV file.
+ * including adding, viewing, filtering, editing, deleting, and importing customers.
  */
 
 // This variable will hold the dependencies (db, userId, etc.) passed from index.html
@@ -40,7 +40,7 @@ window.showClientesSubMenu = function() {
     `;
 
     // Attach event listeners
-    document.getElementById('addClienteBtn').addEventListener('click', showAgregarClienteForm);
+    document.getElementById('addClienteBtn').addEventListener('click', () => showClienteForm()); // Changed to generic form
     document.getElementById('viewClientesBtn').addEventListener('click', showVerEditarClientes);
     document.getElementById('importClientesBtn').addEventListener('click', showImportarClientesView);
     document.getElementById('backToMainMenuBtn').addEventListener('click', dependencies.showMainMenu);
@@ -53,26 +53,27 @@ async function showVerEditarClientes() {
     dependencies.mainContent.innerHTML = `<div class="p-8 text-center"><h2 class="text-2xl font-bold text-gray-700">Cargando clientes...</h2></div>`;
     
     try {
-        const collectionRef = dependencies.collection(dependencies.db, `artifacts/${dependencies.appId}/users/${dependencies.userId}/clientes`);
-        const snapshot = await dependencies.getDocs(collectionRef);
+        const clientsRef = dependencies.collection(dependencies.db, `artifacts/${dependencies.appId}/users/${dependencies.userId}/clientes`);
+        const sectorsRef = dependencies.collection(dependencies.db, `artifacts/${dependencies.appId}/users/${dependencies.userId}/sectores`);
+
+        const [clientSnapshot, sectorSnapshot] = await Promise.all([
+            dependencies.getDocs(clientsRef),
+            dependencies.getDocs(sectorsRef)
+        ]);
         
-        allClients = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        allClients = clientSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        allSectors = sectorSnapshot.docs.map(doc => doc.data().name).sort((a, b) => a.localeCompare(b));
 
-        // Get unique sectors for the filter dropdown
-        const sectors = new Set(allClients.map(c => c.sector).filter(Boolean));
-        allSectors = [...sectors].sort((a, b) => a.localeCompare(b));
-
-        // Initial render of the view with controls and table
         renderClientListView();
         
     } catch (error) {
-        console.error("Error fetching customers: ", error);
-        dependencies.showModal('Error', `No se pudieron cargar los clientes: ${error.message}`);
+        console.error("Error fetching data: ", error);
+        dependencies.showModal('Error', `No se pudieron cargar los datos: ${error.message}`);
     }
 }
 
 /**
- * Renders the HTML structure for the "Ver / Editar Clientes" page, including filters.
+ * Renders the HTML structure for the "Ver / Editar Clientes" page, including filters and action handlers.
  */
 function renderClientListView() {
     let sectorOptions = allSectors.map(sector => `<option value="${sector}">${sector}</option>`).join('');
@@ -85,8 +86,6 @@ function renderClientListView() {
                         <h2 class="text-2xl font-bold text-gray-800">Ver / Editar Clientes</h2>
                         <button id="backToClientesMenu" class="w-full md:w-auto px-4 py-2 bg-gray-400 text-white font-semibold rounded-lg shadow-md hover:bg-gray-500">Volver</button>
                     </div>
-
-                    <!-- Search and Filter Controls -->
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                         <input type="text" id="searchInput" class="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Buscar por Nombre o CEP...">
                         <select id="sectorFilter" class="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500">
@@ -94,7 +93,6 @@ function renderClientListView() {
                             ${sectorOptions}
                         </select>
                     </div>
-
                     <div class="overflow-x-auto">
                         <table class="min-w-full bg-transparent">
                             <thead class="bg-gray-200/80">
@@ -102,27 +100,61 @@ function renderClientListView() {
                                     <th class="py-3 px-4 border-b text-left text-sm font-bold text-gray-600">Nombre Comercial</th>
                                     <th class="py-3 px-4 border-b text-left text-sm font-bold text-gray-600">Nombre Personal</th>
                                     <th class="py-3 px-4 border-b text-left text-sm font-bold text-gray-600 hidden md:table-cell">Sector</th>
+                                    <th class="py-3 px-4 border-b text-center text-sm font-bold text-gray-600">Acciones</th>
                                 </tr>
                             </thead>
-                            <tbody id="client-table-body">
-                                <!-- Client rows will be inserted here by JavaScript -->
-                            </tbody>
+                            <tbody id="client-table-body"></tbody>
                         </table>
                     </div>
                 </div>
             </div>
         </div>
     `;
-
     dependencies.mainContent.innerHTML = html;
-
-    // Populate the table with all clients initially
     renderClientTableRows(allClients);
     
-    // Add event listeners for filtering
     document.getElementById('backToClientesMenu').addEventListener('click', window.showClientesSubMenu);
     document.getElementById('searchInput').addEventListener('input', filterClients);
     document.getElementById('sectorFilter').addEventListener('change', filterClients);
+    document.getElementById('client-table-body').addEventListener('click', handleTableActions);
+}
+
+/**
+ * Handles clicks on the action buttons (edit, delete) in the client table.
+ * @param {Event} e - The click event.
+ */
+function handleTableActions(e) {
+    const button = e.target.closest('button');
+    if (!button) return;
+
+    const action = button.dataset.action;
+    const clientId = button.dataset.id;
+    const clientName = button.dataset.name;
+
+    if (action === 'edit') {
+        showClienteForm(clientId);
+    } else if (action === 'delete') {
+        handleDeleteCliente(clientId, clientName);
+    }
+}
+
+/**
+ * Deletes a client after user confirmation.
+ * @param {string} clientId - The Firestore ID of the client to delete.
+ * @param {string} clientName - The name of the client for the confirmation message.
+ */
+function handleDeleteCliente(clientId, clientName) {
+    const confirmationMessage = `¿Estás seguro de que quieres eliminar a <strong>${clientName}</strong>? Esta acción no se puede deshacer.`;
+    dependencies.showModal('Confirmar Eliminación', confirmationMessage, async () => {
+        try {
+            const clientDocRef = dependencies.doc(dependencies.db, `artifacts/${dependencies.appId}/users/${dependencies.userId}/clientes`, clientId);
+            await dependencies.deleteDoc(clientDocRef);
+            dependencies.showModal('Éxito', `El cliente ${clientName} ha sido eliminado.`, showVerEditarClientes);
+        } catch (error) {
+            console.error("Error deleting client:", error);
+            dependencies.showModal('Error', `No se pudo eliminar el cliente: ${error.message}`);
+        }
+    }, 'Eliminar');
 }
 
 /**
@@ -135,9 +167,8 @@ function renderClientTableRows(clients) {
 
     let rowsHtml = '';
     if (clients.length === 0) {
-        rowsHtml = `<tr><td colspan="3" class="text-center py-6 text-gray-500">No se encontraron clientes con los filtros aplicados.</td></tr>`;
+        rowsHtml = `<tr><td colspan="4" class="text-center py-6 text-gray-500">No se encontraron clientes.</td></tr>`;
     } else {
-        // Sort clients by commercial name before rendering
         clients.sort((a, b) => a.nombreComercial.localeCompare(b.nombreComercial));
         clients.forEach(cliente => {
             rowsHtml += `
@@ -145,6 +176,14 @@ function renderClientTableRows(clients) {
                     <td class="py-3 px-4 border-b border-gray-200 font-medium text-gray-800">${cliente.nombreComercial}</td>
                     <td class="py-3 px-4 border-b border-gray-200 text-gray-600">${cliente.nombrePersonal || '-'}</td>
                     <td class="py-3 px-4 border-b border-gray-200 text-gray-600 hidden md:table-cell">${cliente.sector || '-'}</td>
+                    <td class="py-3 px-4 border-b border-gray-200 text-center">
+                        <button data-action="edit" data-id="${cliente.id}" class="p-2 text-blue-600 hover:text-blue-800" title="Editar">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L14.732 3.732z"></path></svg>
+                        </button>
+                        <button data-action="delete" data-id="${cliente.id}" data-name="${cliente.nombreComercial}" class="p-2 text-red-600 hover:text-red-800" title="Eliminar">
+                           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        </button>
+                    </td>
                 </tr>
             `;
         });
@@ -153,53 +192,54 @@ function renderClientTableRows(clients) {
 }
 
 /**
- * Filters the global `allClients` list based on search and sector inputs and re-renders the table.
+ * Filters the client list based on search and sector inputs and re-renders the table.
  */
 function filterClients() {
     const searchTerm = document.getElementById('searchInput').value.toUpperCase();
     const selectedSector = document.getElementById('sectorFilter').value;
-
     const filtered = allClients.filter(client => {
         const matchesSearch = searchTerm === '' ||
             (client.nombreComercial && client.nombreComercial.toUpperCase().includes(searchTerm)) ||
             (client.nombrePersonal && client.nombrePersonal.toUpperCase().includes(searchTerm)) ||
             (client.codigoCep && client.codigoCep.toUpperCase().includes(searchTerm));
-
         const matchesSector = selectedSector === '' || client.sector === selectedSector;
-
         return matchesSearch && matchesSector;
     });
-
     renderClientTableRows(filtered);
 }
 
-
 /**
- * Displays the form for adding a new customer, with a dynamic dropdown for sectors.
+ * Displays a form for either adding a new customer or editing an existing one.
+ * @param {string|null} clientId - The ID of the client to edit, or null to add a new one.
  */
-async function showAgregarClienteForm() {
+async function showClienteForm(clientId = null) {
+    const isEditing = clientId !== null;
+    let clientData = {};
+
     dependencies.mainContent.innerHTML = `<div class="p-8 text-center"><h2 class="text-2xl font-bold text-gray-700">Cargando...</h2></div>`;
 
-    let sectorOptionsHtml = '';
-    try {
-        const sectorsRef = dependencies.collection(dependencies.db, `artifacts/${dependencies.appId}/users/${dependencies.userId}/sectores`);
-        const snapshot = await dependencies.getDocs(sectorsRef);
-        const sectors = snapshot.docs.map(doc => doc.data().name).sort((a, b) => a.localeCompare(b));
-        sectorOptionsHtml = sectors.map(sector => `<option value="${sector}">${sector}</option>`).join('');
-    } catch (e) {
-        console.error("Could not fetch sectors", e);
+    if (isEditing) {
+        const docRef = dependencies.doc(dependencies.db, `artifacts/${dependencies.appId}/users/${dependencies.userId}/clientes`, clientId);
+        const docSnap = await dependencies.getDoc(docRef);
+        if (docSnap.exists()) {
+            clientData = docSnap.data();
+        } else {
+            dependencies.showModal('Error', 'No se encontró el cliente para editar.');
+            return;
+        }
     }
+
+    let sectorOptionsHtml = allSectors.map(sector => `<option value="${sector}" ${clientData.sector === sector ? 'selected' : ''}>${sector}</option>`).join('');
 
     dependencies.mainContent.innerHTML = `
         <div class="p-4 animate-fade-in">
             <div class="container mx-auto max-w-2xl">
                 <div class="bg-white/90 p-8 rounded-lg shadow-xl">
-                    <h2 class="text-2xl font-bold mb-6 text-center">Agregar Nuevo Cliente</h2>
+                    <h2 class="text-2xl font-bold mb-6 text-center">${isEditing ? 'Editar Cliente' : 'Agregar Nuevo Cliente'}</h2>
                     <form id="clienteForm" class="space-y-4">
-                        <input type="text" id="nombreComercial" placeholder="Nombre Comercial (Requerido)" class="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500" required>
-                        <input type="text" id="nombrePersonal" placeholder="Nombre Personal" class="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500">
-                        <input type="tel" id="telefono" placeholder="Teléfono" class="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500">
-                        
+                        <input type="text" id="nombreComercial" placeholder="Nombre Comercial (Requerido)" class="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500" value="${clientData.nombreComercial || ''}" required>
+                        <input type="text" id="nombrePersonal" placeholder="Nombre Personal" class="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500" value="${clientData.nombrePersonal || ''}">
+                        <input type="tel" id="telefono" placeholder="Teléfono" class="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500" value="${clientData.telefono || ''}">
                         <div>
                             <label for="sector" class="block text-sm font-medium text-gray-700 mb-1">Sector</label>
                             <div class="flex items-center gap-2">
@@ -210,21 +250,19 @@ async function showAgregarClienteForm() {
                                 <button type="button" id="addSectorBtn" class="flex-shrink-0 p-3 bg-green-500 text-white rounded-lg hover:bg-green-600 text-xl font-bold leading-none">+</button>
                             </div>
                         </div>
-
                         <div>
                              <label for="codigoCep" class="block text-sm font-medium text-gray-700 mb-1">Código CEP</label>
                              <div class="flex items-center gap-2">
-                                <input type="text" id="codigoCep" placeholder="Código CEP" class="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                                <input type="text" id="codigoCep" placeholder="Código CEP" class="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500" value="${clientData.codigoCep || ''}">
                                 <div class="flex items-center">
                                     <input id="cepNA" type="checkbox" class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
                                     <label for="cepNA" class="ml-2 block text-sm text-gray-900">N/A</label>
                                 </div>
                              </div>
                         </div>
-
                         <div class="flex justify-between items-center pt-4">
-                            <button type="button" id="cancelAddCliente" class="px-6 py-2 bg-gray-400 text-white font-semibold rounded-lg shadow-md hover:bg-gray-500">Cancelar</button>
-                            <button type="submit" class="px-6 py-2 bg-blue-500 text-white font-semibold rounded-lg shadow-md hover:bg-blue-600">Guardar Cliente</button>
+                            <button type="button" id="cancelForm" class="px-6 py-2 bg-gray-400 text-white font-semibold rounded-lg shadow-md hover:bg-gray-500">Cancelar</button>
+                            <button type="submit" class="px-6 py-2 bg-blue-500 text-white font-semibold rounded-lg shadow-md hover:bg-blue-600">Guardar Cambios</button>
                         </div>
                     </form>
                 </div>
@@ -232,12 +270,16 @@ async function showAgregarClienteForm() {
         </div>
     `;
 
-    // Event Listeners for the new functionality
-    document.getElementById('cancelAddCliente').addEventListener('click', window.showClientesSubMenu);
-    document.getElementById('addSectorBtn').addEventListener('click', showAddSectorModal);
+    document.getElementById('cancelForm').addEventListener('click', showVerEditarClientes);
+    document.getElementById('addSectorBtn').addEventListener('click', () => showAddSectorModal(clientId));
 
     const cepInput = document.getElementById('codigoCep');
     const cepNACheckbox = document.getElementById('cepNA');
+    if (clientData.codigoCep === 'N/A') {
+        cepNACheckbox.checked = true;
+        cepInput.disabled = true;
+        cepInput.classList.add('bg-gray-200');
+    }
     cepNACheckbox.addEventListener('change', (e) => {
         if (e.target.checked) {
             cepInput.value = 'N/A';
@@ -252,34 +294,41 @@ async function showAgregarClienteForm() {
 
     document.getElementById('clienteForm').addEventListener('submit', async (e) => {
         e.preventDefault();
-        const nuevoCliente = {
+        const clientPayload = {
             nombreComercial: document.getElementById('nombreComercial').value.trim(),
             nombrePersonal: document.getElementById('nombrePersonal').value.trim(),
             telefono: document.getElementById('telefono').value.trim(),
             sector: document.getElementById('sector').value,
             codigoCep: document.getElementById('codigoCep').value.trim(),
-            createdAt: new Date()
         };
-        if (!nuevoCliente.nombreComercial) {
+        if (!clientPayload.nombreComercial) {
             dependencies.showModal('Error', 'El Nombre Comercial es obligatorio.');
             return;
         }
+
         try {
-            const collectionRef = dependencies.collection(dependencies.db, `artifacts/${dependencies.appId}/users/${dependencies.userId}/clientes`);
-            await dependencies.addDoc(collectionRef, nuevoCliente);
-            dependencies.showModal('Éxito', 'Cliente agregado correctamente.', showVerEditarClientes);
+            if (isEditing) {
+                const docRef = dependencies.doc(dependencies.db, `artifacts/${dependencies.appId}/users/${dependencies.userId}/clientes`, clientId);
+                await dependencies.updateDoc(docRef, clientPayload);
+                dependencies.showModal('Éxito', 'Cliente actualizado correctamente.', showVerEditarClientes);
+            } else {
+                clientPayload.createdAt = new Date();
+                const collectionRef = dependencies.collection(dependencies.db, `artifacts/${dependencies.appId}/users/${dependencies.userId}/clientes`);
+                await dependencies.addDoc(collectionRef, clientPayload);
+                dependencies.showModal('Éxito', 'Cliente agregado correctamente.', showVerEditarClientes);
+            }
         } catch (error) {
-            console.error("Error adding customer: ", error);
-            dependencies.showModal('Error', `No se pudo agregar el cliente: ${error.message}`);
+            console.error("Error saving customer: ", error);
+            dependencies.showModal('Error', `No se pudo guardar el cliente: ${error.message}`);
         }
     });
 }
 
 /**
  * Shows a modal to add a new sector to the database.
- * On success, it refreshes the add customer form to show the new sector in the dropdown.
+ * @param {string|null} clientId - The ID of the client being edited, to return to the form after.
  */
-function showAddSectorModal() {
+function showAddSectorModal(clientId) {
     dependencies.modalContent.innerHTML = `
         <h3 class="text-xl font-bold text-gray-800 mb-4">Agregar Nuevo Sector</h3>
         <form id="addSectorForm">
@@ -291,9 +340,7 @@ function showAddSectorModal() {
         </form>
     `;
     dependencies.modalContainer.classList.remove('hidden');
-
     document.getElementById('closeModalBtn').addEventListener('click', () => dependencies.modalContainer.classList.add('hidden'));
-
     document.getElementById('addSectorForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const newName = document.getElementById('newSectorName').value.trim();
@@ -302,97 +349,69 @@ function showAddSectorModal() {
                 const sectorsRef = dependencies.collection(dependencies.db, `artifacts/${dependencies.appId}/users/${dependencies.userId}/sectores`);
                 await dependencies.addDoc(sectorsRef, { name: newName });
                 dependencies.modalContainer.classList.add('hidden');
-                // Refresh the form to show the new sector in the dropdown
-                await showAgregarClienteForm();
-            } catch (err) {
-                console.error("Error adding sector:", err);
-            }
+                await showClienteForm(clientId);
+            } catch (err) { console.error("Error adding sector:", err); }
         }
     });
 }
 
 // --- IMPORT FUNCTIONS ---
 
-/**
- * Displays the view for importing customers from a file.
- */
 function showImportarClientesView() {
-    const message = `
-        <div class="p-4 animate-fade-in">
-            <div class="container mx-auto max-w-2xl">
-                <div class="bg-white/90 p-8 rounded-lg shadow-xl text-center">
-                    <h2 class="text-2xl font-bold mb-4 text-gray-800">Importar Clientes</h2>
-                    <p class="mb-6 text-gray-600">Selecciona un archivo Excel (.xlsx) o CSV. La aplicación leerá los datos para agregar nuevos clientes.</p>
-                    <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 hover:bg-gray-50 transition-colors">
-                        <input type="file" id="fileUploader" class="hidden" accept=".xlsx, .xls, .csv">
-                        <label for="fileUploader" class="cursor-pointer flex flex-col items-center">
-                            <svg class="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
-                            <span class="mt-2 text-sm font-medium text-blue-600">Haz clic para seleccionar un archivo</span>
-                        </label>
-                    </div>
-                     <p id="fileName" class="mt-4 text-sm text-gray-500 h-5"></p>
-                    <button id="cancelImport" class="mt-6 px-6 py-2 bg-gray-400 text-white font-semibold rounded-lg shadow-md hover:bg-gray-500">Cancelar</button>
-                </div>
+    dependencies.mainContent.innerHTML = `
+        <div class="p-4 animate-fade-in"><div class="container mx-auto max-w-2xl"><div class="bg-white/90 p-8 rounded-lg shadow-xl text-center">
+            <h2 class="text-2xl font-bold mb-4 text-gray-800">Importar Clientes</h2>
+            <p class="mb-6 text-gray-600">Selecciona un archivo Excel (.xlsx) o CSV. La aplicación leerá los datos para agregar nuevos clientes.</p>
+            <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 hover:bg-gray-50 transition-colors">
+                <input type="file" id="fileUploader" class="hidden" accept=".xlsx, .xls, .csv">
+                <label for="fileUploader" class="cursor-pointer flex flex-col items-center">
+                    <svg class="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                    <span class="mt-2 text-sm font-medium text-blue-600">Haz clic para seleccionar un archivo</span>
+                </label>
             </div>
-        </div>
-    `;
-    dependencies.mainContent.innerHTML = message;
+            <p id="fileName" class="mt-4 text-sm text-gray-500 h-5"></p>
+            <button id="cancelImport" class="mt-6 px-6 py-2 bg-gray-400 text-white font-semibold rounded-lg shadow-md hover:bg-gray-500">Cancelar</button>
+        </div></div></div>`;
     document.getElementById('cancelImport').addEventListener('click', window.showClientesSubMenu);
-    
     document.getElementById('fileUploader').addEventListener('change', handleFileUpload);
 }
 
-/**
- * Handles the file upload and parsing process using SheetJS.
- * @param {Event} event - The file input change event.
- */
 async function handleFileUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
-
-    document.getElementById('fileName').textContent = `Archivo seleccionado: ${file.name}`;
+    document.getElementById('fileName').textContent = `Archivo: ${file.name}`;
     dependencies.mainContent.innerHTML = `<div class="p-8 text-center"><h2 class="text-2xl font-bold text-gray-700">Procesando archivo...</h2></div>`;
-
     const reader = new FileReader();
     reader.onload = async (e) => {
         try {
             const data = new Uint8Array(e.target.result);
             const workbook = XLSX.read(data, { type: 'array' });
-            const firstSheetName = workbook.SheetNames[0];
-            const worksheet = workbook.Sheets[firstSheetName];
+            const worksheet = workbook.Sheets[workbook.SheetNames[0]];
             const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
             await procesarYGuardarClientes(rows);
         } catch (error) {
             console.error("Error processing file: ", error);
-            dependencies.showModal('Error al Procesar', `No se pudo leer el archivo. Asegúrate de que sea un formato Excel/CSV válido. Error: ${error.message}`);
+            dependencies.showModal('Error al Procesar', `No se pudo leer el archivo. Error: ${error.message}`);
         }
     };
     reader.readAsArrayBuffer(file);
 }
 
-/**
- * Processes the extracted rows, checks for duplicates, and saves new customers to Firestore.
- * This version reads data by column index and does NOT import Codigo CEP.
- * @param {Array<Array<any>>} rows - Array of rows from the parsed file.
- */
 async function procesarYGuardarClientes(rows) {
     if (!rows || rows.length === 0) {
         dependencies.showModal('Archivo Vacío', 'El archivo no contiene datos.', window.showClientesSubMenu);
         return;
     }
-    
-    dependencies.mainContent.innerHTML = `<div class="p-8 text-center"><h2 class="text-2xl font-bold text-gray-700">Verificando clientes y guardando...</h2></div>`;
+    dependencies.mainContent.innerHTML = `<div class="p-8 text-center"><h2 class="text-2xl font-bold text-gray-700">Verificando y guardando...</h2></div>`;
 
     const collectionRef = dependencies.collection(dependencies.db, `artifacts/${dependencies.appId}/users/${dependencies.userId}/clientes`);
     const snapshot = await dependencies.getDocs(collectionRef);
     const clientesExistentes = new Set(snapshot.docs.map(doc => doc.data().nombreComercial.trim().toUpperCase()));
-
     const batch = dependencies.writeBatch(dependencies.db);
     let clientesNuevosContador = 0;
 
     rows.forEach(row => {
         const isClientRow = !isNaN(parseInt(row[0])) && typeof row[1] === 'string' && row[1].trim() !== '';
-
         if (isClientRow) {
             const nombreComercial = String(row[1]).trim();
             const nombrePersonalRaw = row[3];
@@ -400,11 +419,8 @@ async function procesarYGuardarClientes(rows) {
             
             if (nombreComercial && !clientesExistentes.has(nombreComercial.toUpperCase())) {
                 const nuevoCliente = {
-                    nombreComercial: nombreComercial,
-                    nombrePersonal: nombrePersonal,
-                    telefono: '',
-                    sector: '',
-                    codigoCep: '', // Does not import CEP from the file
+                    nombreComercial, nombrePersonal,
+                    telefono: '', sector: '', codigoCep: '',
                     createdAt: new Date()
                 };
                 const nuevoDocRef = dependencies.doc(collectionRef);
@@ -418,8 +434,6 @@ async function procesarYGuardarClientes(rows) {
     if (clientesNuevosContador > 0) {
         await batch.commit();
     }
-
-    dependencies.showModal('Sincronización Completa', `Se analizaron ${rows.length} filas del archivo.<br><strong>${clientesNuevosContador} clientes nuevos</strong> fueron importados.`, showVerEditarClientes);
+    dependencies.showModal('Sincronización Completa', `Se analizaron ${rows.length} filas.<br><strong>${clientesNuevosContador} clientes nuevos</strong> fueron importados.`, showVerEditarClientes);
 }
-
 
