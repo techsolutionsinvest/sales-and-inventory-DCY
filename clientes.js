@@ -62,7 +62,7 @@
                                 Modificar / Eliminar Cliente
                             </button>
                             <button id="syncPDF" class="w-full px-6 py-3 bg-teal-600 text-white font-semibold rounded-lg shadow-md hover:bg-teal-700 transition duration-300 transform hover:scale-105">
-                                Sincronizar desde PDF de CXC
+                                Sincronizar Clientes desde PDF
                             </button>
                             <button id="backToMenuBtn" class="w-full px-6 py-3 bg-gray-400 text-white font-semibold rounded-lg shadow-md hover:bg-gray-500 transition duration-300 transform hover:scale-105">
                                 Volver al Menú Principal
@@ -87,8 +87,8 @@
             <div class="p-4 pt-8">
                 <div class="container mx-auto">
                     <div class="bg-white/90 backdrop-blur-sm p-8 rounded-lg shadow-xl text-center">
-                        <h2 class="text-2xl font-bold text-gray-800 mb-4">Sincronizar desde PDF</h2>
-                        <p class="text-gray-600 mb-6 max-w-lg mx-auto">Sube el archivo PDF de Cuentas por Cobrar para actualizar automáticamente la información de clientes y sus saldos en la aplicación.</p>
+                        <h2 class="text-2xl font-bold text-gray-800 mb-4">Sincronizar Clientes desde PDF</h2>
+                        <p class="text-gray-600 mb-6 max-w-lg mx-auto">Sube el archivo PDF de Cuentas por Cobrar para encontrar y agregar clientes nuevos a tu base de datos.</p>
                         
                         <div class="max-w-md mx-auto border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-teal-500 transition" id="pdf-dropzone">
                             <input type="file" id="pdf-file-input" class="hidden" accept=".pdf">
@@ -206,35 +206,54 @@
         const syncStatus = document.getElementById('sync-status');
         syncStatus.innerHTML = `<p class="text-blue-500">Analizando texto del PDF para encontrar clientes...</p>`;
 
-        const summaryRegex = /(\d+)\s+([A-ZÁÉÍÓÚÑ&.'\s]+?)\s+([\d,.-]+)\s+/g;
-
         const summaryStart = text.indexOf("RAZON SOCIAL");
         const summaryEnd = text.indexOf("SUB TOTAL");
+
         if (summaryStart === -1 || summaryEnd === -1) {
             _showModal('Error de Formato', 'No se pudo encontrar la tabla de resumen de clientes en el PDF. Verifique que el archivo sea correcto.');
             syncStatus.innerHTML = `<p class="text-red-500">Análisis fallido. Formato de PDF no reconocido.</p>`;
             document.getElementById('startSyncBtn').disabled = false;
             return;
         }
+
         const summaryText = text.substring(summaryStart, summaryEnd);
-
-        let match;
+        const lines = summaryText.split('\n');
         const pdfClients = new Map();
-        while ((match = summaryRegex.exec(summaryText)) !== null) {
-            let commercialName = match[2].trim();
-            let personalName = '';
+        
+        // Regex mejorada para capturar el nombre de forma más fiable.
+        // Busca una línea que empiece con un número, seguido de espacios, y captura todo el texto hasta que encuentra un número que podría ser una deuda o dato de columna.
+        const lineRegex = /^\s*(\d+)\s+([A-ZÁÉÍÓÚÑ&.'\s]+?)(?=\s+[\d,.-])/;
 
-            const nameParts = commercialName.split(/\s{3,}/);
-            if (nameParts.length > 1 && nameParts[0].trim().length > 0) {
-                commercialName = nameParts[0].trim();
-                personalName = nameParts.slice(1).join(' ').trim();
-            }
-
-            if (commercialName && !pdfClients.has(commercialName.toLowerCase())) {
-                pdfClients.set(commercialName.toLowerCase(), {
-                    nombreComercial: commercialName,
-                    nombrePersonal: personalName || 'N/A',
+        for (const line of lines) {
+            const match = line.match(lineRegex);
+            if (match) {
+                let fullName = match[2].trim();
+                
+                // Limpia el nombre de posibles vendedores o artefactos del PDF
+                const vendors = ["WILLI", "MENOR", "ROBERTO", "ROBERTO WIL"];
+                vendors.forEach(vendor => {
+                    const regex = new RegExp(`\\s${vendor}\\s*$`);
+                    if (fullName.match(regex)) {
+                        fullName = fullName.replace(regex, '').trim();
+                    }
                 });
+                
+                let commercialName = fullName;
+                let personalName = '';
+
+                // Intenta separar nombre comercial y personal si están en la misma línea separados por muchos espacios
+                const nameParts = commercialName.split(/\s{3,}/);
+                if (nameParts.length > 1 && nameParts[0].trim().length > 0) {
+                    commercialName = nameParts[0].trim();
+                    personalName = nameParts.slice(1).join(' ').trim();
+                }
+
+                if (commercialName && !pdfClients.has(commercialName.toLowerCase())) {
+                    pdfClients.set(commercialName.toLowerCase(), {
+                        nombreComercial: commercialName,
+                        nombrePersonal: personalName || 'N/A',
+                    });
+                }
             }
         }
 
@@ -389,7 +408,7 @@
                 motivo = "nombre comercial";
                 break;
             }
-            if (c.nombrePersonal.toLowerCase() === normPersonal) {
+            if (c.nombrePersonal && c.nombrePersonal.toLowerCase() === normPersonal) {
                 duplicado = c;
                 motivo = "nombre personal";
                 break;
@@ -722,3 +741,4 @@
     };
 
 })();
+
