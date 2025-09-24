@@ -1062,32 +1062,31 @@
 
                     const batch = _writeBatch(_db);
                     
-                    // **CORRECCIÓN**: Sanear los datos de ventas antes de archivarlos.
+                    // **CORRECCIÓN ROBUSTA**: Sanear los datos de ventas antes de cualquier operación.
                     const sanitizedVentas = ventas.map(venta => {
-                        const { id, ...rest } = venta;
-                        const sanitizedVenta = { ...rest };
-                        // Asegurarse de que los campos potencialmente indefinidos tengan un valor predeterminado.
-                        sanitizedVenta.clienteNombrePersonal = sanitizedVenta.clienteNombrePersonal || '';
-                        sanitizedVenta.productos = sanitizedVenta.productos.map(p => ({
-                            ...p,
-                            rubro: p.rubro || null,
-                            segmento: p.segmento || null,
-                            marca: p.marca || null
-                        }));
-                        return sanitizedVenta;
+                        return {
+                            ...venta,
+                            clienteNombrePersonal: venta.clienteNombrePersonal || '',
+                            productos: venta.productos.map(p => ({
+                                ...p,
+                                rubro: p.rubro || null, // Clave para evitar 'undefined'
+                                segmento: p.segmento || null,
+                                marca: p.marca || null
+                            }))
+                        };
                     });
 
                     // Archivar el cierre con datos saneados
                     const cierreRef = _doc(_collection(_db, `artifacts/${_appId}/users/${_userId}/cierres`));
                     batch.set(cierreRef, {
                         fecha: new Date(),
-                        ventas: sanitizedVentas,
-                        total: ventas.reduce((sum, v) => sum + v.total, 0)
+                        ventas: sanitizedVentas.map(({ id, ...rest }) => rest), // Quitar ID para el archivo
+                        total: sanitizedVentas.reduce((sum, v) => sum + v.total, 0)
                     });
 
-                    // Crear transacciones CXC
+                    // Crear transacciones CXC usando los datos ya saneados
                     const cxcTransRef = _collection(_db, `artifacts/${_appId}/users/${_userId}/cxc_transacciones`);
-                    ventas.forEach(venta => {
+                    sanitizedVentas.forEach(venta => {
                         const beerProducts = venta.productos.filter(p => p.rubro === 'Cerveceria y Vinos');
                         const otherProducts = venta.productos.filter(p => p.rubro !== 'Cerveceria y Vinos');
 
