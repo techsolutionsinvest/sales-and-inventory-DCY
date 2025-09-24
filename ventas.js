@@ -676,17 +676,13 @@
 
                 const ventaData = {
                     clienteId: _ventaActual.cliente.id,
-                    clienteNombre: _ventaActual.cliente.nombreComercial || _ventaActual.cliente.nombrePersonal,
-                    clienteNombrePersonal: _ventaActual.cliente.nombrePersonal,
+                    clienteNombre: _ventaActual.cliente.nombreComercial || _ventaActual.cliente.nombrePersonal || 'N/A',
+                    clienteNombrePersonal: _ventaActual.cliente.nombrePersonal || '',
                     fecha: new Date(),
                     total: totalVenta,
                     productos: itemsVenta
                 };
                 batch.set(ventaRef, ventaData);
-
-                // **REMOVED**: CXC transaction is no longer created here.
-                // It will be created during the sales closing process.
-
                 await batch.commit();
 
                 // Show sharing options after saving the sale
@@ -1066,15 +1062,30 @@
 
                     const batch = _writeBatch(_db);
                     
-                    // Archivar el cierre
+                    // **CORRECCIÓN**: Sanear los datos de ventas antes de archivarlos.
+                    const sanitizedVentas = ventas.map(venta => {
+                        const { id, ...rest } = venta;
+                        const sanitizedVenta = { ...rest };
+                        // Asegurarse de que los campos potencialmente indefinidos tengan un valor predeterminado.
+                        sanitizedVenta.clienteNombrePersonal = sanitizedVenta.clienteNombrePersonal || '';
+                        sanitizedVenta.productos = sanitizedVenta.productos.map(p => ({
+                            ...p,
+                            rubro: p.rubro || null,
+                            segmento: p.segmento || null,
+                            marca: p.marca || null
+                        }));
+                        return sanitizedVenta;
+                    });
+
+                    // Archivar el cierre con datos saneados
                     const cierreRef = _doc(_collection(_db, `artifacts/${_appId}/users/${_userId}/cierres`));
                     batch.set(cierreRef, {
                         fecha: new Date(),
-                        ventas: ventas.map(({id, ...rest}) => rest),
+                        ventas: sanitizedVentas,
                         total: ventas.reduce((sum, v) => sum + v.total, 0)
                     });
 
-                    // **NUEVA LÓGICA**: Crear transacciones CXC
+                    // Crear transacciones CXC
                     const cxcTransRef = _collection(_db, `artifacts/${_appId}/users/${_userId}/cxc_transacciones`);
                     ventas.forEach(venta => {
                         const beerProducts = venta.productos.filter(p => p.rubro === 'Cerveceria y Vinos');
@@ -1119,6 +1130,7 @@
 
                     _showModal('Éxito', 'El cierre de ventas se ha completado y CXC ha sido actualizado.', showVentasTotalesView);
                 } catch(e) {
+                    console.error("Error durante el cierre:", e);
                     _showModal('Error', `Ocurrió un error durante el cierre: ${e.message}`);
                 }
             },
@@ -1274,12 +1286,8 @@
         }
     }
     
-    // ============================================================================================
-    // == FUNCIÓN CORREGIDA Y MEJORADA ==
-    // ============================================================================================
     /**
      * Guarda los cambios de una venta editada y ajusta el stock de forma atómica.
-     * Esta función ha sido reescrita para ser más clara, robusta y segura.
      */
     async function handleGuardarVentaEditada() {
         if (!_originalVentaForEdit) {
@@ -1371,3 +1379,4 @@
         invalidateCache: () => { _segmentoOrderCacheVentas = null; }
     };
 })();
+
