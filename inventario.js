@@ -715,54 +715,56 @@
     }
 
     /**
-     * Handles the complete deletion of all inventory items.
+     * Handles the complete deletion of all inventory items and related master data.
      */
     async function handleDeleteAllInventory() {
         _showModal(
             '¡ADVERTENCIA MÁXIMA!',
-            `<p class="text-left">Está a punto de eliminar <strong>TODOS</strong> los productos de su inventario de forma permanente.</p>
-             <p class="text-left mt-2">Esta acción no se puede deshacer.</p>
+            `<p class="text-left">Está a punto de eliminar <strong>TODOS</strong> los productos, rubros, segmentos y marcas de forma permanente.</p>
+             <p class="text-left mt-2">Esta acción no se puede deshacer y vaciará completamente su inventario.</p>
              <p class="text-left mt-4">¿Está absolutamente seguro de que desea continuar?</p>`,
             async () => {
-                _showModal('Progreso', 'Eliminando inventario... Por favor, espere.');
+                _showModal('Progreso', 'Eliminando todo el inventario y los datos maestros... Por favor, espere.');
                 try {
-                    const inventarioRef = _collection(_db, `artifacts/${_appId}/users/${_userId}/inventario`);
-                    const snapshot = await _getDocs(inventarioRef);
+                    const collectionsToDelete = ['inventario', 'rubros', 'segmentos', 'marcas'];
+                    
+                    for (const collectionName of collectionsToDelete) {
+                        const collectionRef = _collection(_db, `artifacts/${_appId}/users/${_userId}/${collectionName}`);
+                        const snapshot = await _getDocs(collectionRef);
 
-                    if (snapshot.empty) {
-                        _showModal('Información', 'El inventario ya está vacío.');
-                        return;
-                    }
-
-                    // Process deletions in chunks to avoid Firestore limits
-                    const batches = [];
-                    let currentBatch = _writeBatch(_db);
-                    let operationCount = 0;
-
-                    snapshot.docs.forEach((doc) => {
-                        currentBatch.delete(doc.ref);
-                        operationCount++;
-                        // Create a new batch when the current one is full
-                        if (operationCount === 499) {
-                            batches.push(currentBatch);
-                            currentBatch = _writeBatch(_db);
-                            operationCount = 0;
+                        if (snapshot.empty) {
+                            console.log(`La colección ${collectionName} ya está vacía.`);
+                            continue;
                         }
-                    });
 
-                    // Add the last batch if it has any operations
-                    if (operationCount > 0) {
-                        batches.push(currentBatch);
+                        // Process deletions in chunks to avoid Firestore limits for each collection
+                        const batches = [];
+                        let currentBatch = _writeBatch(_db);
+                        let operationCount = 0;
+
+                        snapshot.docs.forEach((doc) => {
+                            currentBatch.delete(doc.ref);
+                            operationCount++;
+                            if (operationCount === 499) {
+                                batches.push(currentBatch);
+                                currentBatch = _writeBatch(_db);
+                                operationCount = 0;
+                            }
+                        });
+
+                        if (operationCount > 0) {
+                            batches.push(currentBatch);
+                        }
+
+                        // Commit all batches for the current collection
+                        await Promise.all(batches.map(batch => batch.commit()));
                     }
 
-                    // Commit all batches
-                    await Promise.all(batches.map(batch => batch.commit()));
-
-                    _showModal('Éxito', 'Todo el inventario ha sido eliminado correctamente.', showInventarioSubMenu);
+                    _showModal('Éxito', 'Todo el inventario, junto con los rubros, segmentos y marcas, ha sido eliminado correctamente.', showInventarioSubMenu);
 
                 } catch (error) {
-                    console.error("Error deleting all inventory:", error);
-                    _showModal('Error', `Ocurrió un error al eliminar el inventario: ${error.message}`);
+                    console.error("Error deleting all inventory data:", error);
+                    _showModal('Error', `Ocurrió un error al eliminar los datos: ${error.message}`);
                 }
             },
             'Sí, Eliminar Todo'
@@ -1247,4 +1249,3 @@
     };
 
 })();
-
