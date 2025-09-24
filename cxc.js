@@ -234,11 +234,13 @@
         } else {
             tableBody.innerHTML = validTransactions.map(t => {
                 runningBalance += t.monto;
-                const isSale = t.tipo === 'venta' || t.tipo === 'saldo_inicial';
-                const isBeerSale = isSale && Array.isArray(t.rubros) && t.rubros.includes('Cerveceria y Vinos');
-                
+                // **LÓGICA MEJORADA**: La distinción se basa en el monto, no en el tipo.
+                const isCredit = t.monto > 0; // Ventas, saldos iniciales (positivo)
+                const isDebit = t.monto < 0;  // Abonos (negativo)
+
                 let typeIndicatorHTML;
-                if (isSale) {
+                if (isCredit) {
+                    const isBeerSale = Array.isArray(t.rubros) && t.rubros.includes('Cerveceria y Vinos');
                     const bgColor = isBeerSale ? 'bg-blue-500' : 'bg-green-500';
                     typeIndicatorHTML = `<div class="${bgColor} text-white rounded-full w-6 h-6 flex items-center justify-center font-bold mx-auto">V</div>`;
                 } else { // Abono
@@ -249,7 +251,7 @@
                     <tr class="border-b">
                         <td class="py-2 px-2">${t.fecha.toDate().toLocaleDateString('es-ES')}</td>
                         <td class="py-2 px-2">${typeIndicatorHTML}</td>
-                        <td class="py-2 px-2 text-right font-semibold ${t.monto > 0 ? 'text-red-600' : 'text-green-600'}">
+                        <td class="py-2 px-2 text-right font-semibold ${isCredit ? 'text-red-600' : 'text-green-600'}">
                             $${Math.abs(t.monto).toFixed(2)}
                         </td>
                         <td class="py-2 px-2 text-center text-gray-500">-</td>
@@ -302,3 +304,4 @@
     window.initCXC.showCXCView = showCXCView;
 
 })();
+
