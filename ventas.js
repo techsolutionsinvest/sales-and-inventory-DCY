@@ -671,7 +671,7 @@
                     const nuevoStock = productoEnCache.cantidad - p.cantidadVendida;
                     batch.update(productoRef, { cantidad: nuevoStock });
                     totalVenta += p.precio * p.cantidadVendida;
-                    itemsVenta.push({ id: p.id, presentacion: p.presentacion, marca: p.marca ?? null, segmento: p.segmento ?? null, precio: p.precio, cantidadVendida: p.cantidadVendida, iva: p.iva ?? 0, unidadTipo: p.unidadTipo ?? 'und.' });
+                    itemsVenta.push({ id: p.id, presentacion: p.presentacion, marca: p.marca ?? null, segmento: p.segmento ?? null, rubro: p.rubro ?? null, precio: p.precio, cantidadVendida: p.cantidadVendida, iva: p.iva ?? 0, unidadTipo: p.unidadTipo ?? 'und.' });
                 }
 
                 const ventaData = {
@@ -684,20 +684,12 @@
                 };
                 batch.set(ventaRef, ventaData);
 
-                // Crear la transacción en CXC
-                const cxcTransaccionRef = _doc(_collection(_db, `artifacts/${_appId}/users/${_userId}/cxc_transacciones`));
-                batch.set(cxcTransaccionRef, {
-                    clienteId: _ventaActual.cliente.id,
-                    ventaId: ventaRef.id,
-                    fecha: ventaData.fecha,
-                    tipo: 'factura',
-                    monto: ventaData.total,
-                    descripcion: `Venta #${ventaRef.id.substring(0, 5)}`
-                });
+                // **REMOVED**: CXC transaction is no longer created here.
+                // It will be created during the sales closing process.
 
                 await batch.commit();
 
-                // Mostrar opciones después de guardar la venta
+                // Show sharing options after saving the sale
                 showSharingOptions(_ventaActual, productosVendidos, 'ticket', showNuevaVentaView);
 
             } catch (e) {
@@ -1052,11 +1044,11 @@
     }
 
     /**
-     * Ejecuta el cierre de ventas: archiva y elimina.
+     * Ejecuta el cierre de ventas: archiva, crea transacciones CXC y elimina.
      */
     function ejecutarCierre() {
         _showModal('Confirmar Cierre Definitivo', 
-            'Esta acción generará un reporte en Excel, luego archivará y eliminará las ventas actuales. No se puede deshacer. ¿Continuar?', 
+            'Esta acción generará un reporte en Excel, registrará las ventas en CXC, y luego archivará y eliminará las ventas actuales. No se puede deshacer. ¿Continuar?', 
             async () => {
                 
                 const ventasRef = _collection(_db, `artifacts/${_appId}/users/${_userId}/ventas`);
@@ -1070,22 +1062,62 @@
 
                 try {
                     await exportCierreToExcel(ventas);
-                    _showModal('Progreso', 'Reporte Excel generado. Ahora procesando el cierre...');
+                    _showModal('Progreso', 'Reporte Excel generado. Ahora procesando el cierre y actualizando CXC...');
 
+                    const batch = _writeBatch(_db);
+                    
+                    // Archivar el cierre
                     const cierreRef = _doc(_collection(_db, `artifacts/${_appId}/users/${_userId}/cierres`));
-                    await _setDoc(cierreRef, {
+                    batch.set(cierreRef, {
                         fecha: new Date(),
                         ventas: ventas.map(({id, ...rest}) => rest),
                         total: ventas.reduce((sum, v) => sum + v.total, 0)
                     });
 
-                    const batch = _writeBatch(_db);
+                    // **NUEVA LÓGICA**: Crear transacciones CXC
+                    const cxcTransRef = _collection(_db, `artifacts/${_appId}/users/${_userId}/cxc_transacciones`);
+                    ventas.forEach(venta => {
+                        const beerProducts = venta.productos.filter(p => p.rubro === 'Cerveceria y Vinos');
+                        const otherProducts = venta.productos.filter(p => p.rubro !== 'Cerveceria y Vinos');
+
+                        if (beerProducts.length > 0) {
+                            const beerTotal = beerProducts.reduce((sum, p) => sum + (p.precio * p.cantidadVendida), 0);
+                            const newDocRef = _doc(cxcTransRef);
+                            batch.set(newDocRef, {
+                                clienteId: venta.clienteId,
+                                ventaId: venta.id,
+                                fecha: venta.fecha,
+                                tipo: 'venta',
+                                monto: beerTotal,
+                                descripcion: `Venta Cervecería #${venta.id.substring(0, 5)}`,
+                                rubros: ['Cerveceria y Vinos']
+                            });
+                        }
+            
+                        if (otherProducts.length > 0) {
+                            const otherTotal = otherProducts.reduce((sum, p) => sum + (p.precio * p.cantidadVendida), 0);
+                            const allOtherRubros = [...new Set(otherProducts.map(p => p.rubro))];
+                            const newDocRef = _doc(cxcTransRef);
+                            batch.set(newDocRef, {
+                                clienteId: venta.clienteId,
+                                ventaId: venta.id,
+                                fecha: venta.fecha,
+                                tipo: 'venta',
+                                monto: otherTotal,
+                                descripcion: `Venta General #${venta.id.substring(0, 5)}`,
+                                rubros: allOtherRubros
+                            });
+                        }
+                    });
+
+                    // Eliminar las ventas actuales
                     ventas.forEach(venta => {
                         batch.delete(_doc(ventasRef, venta.id));
                     });
+                    
                     await batch.commit();
 
-                    _showModal('Éxito', 'El cierre de ventas se ha completado correctamente.', showVentasTotalesView);
+                    _showModal('Éxito', 'El cierre de ventas se ha completado y CXC ha sido actualizado.', showVentasTotalesView);
                 } catch(e) {
                     _showModal('Error', `Ocurrió un error durante el cierre: ${e.message}`);
                 }
@@ -1305,7 +1337,7 @@
                 const nuevosProductosVendidos = Object.values(_ventaActual.productos);
                 const nuevoTotal = nuevosProductosVendidos.reduce((sum, p) => sum + (p.precio * p.cantidadVendida), 0);
                 const nuevosItemsVenta = nuevosProductosVendidos.map(p => ({
-                    id: p.id, presentacion: p.presentacion, marca: p.marca ?? null, segmento: p.segmento ?? null,
+                    id: p.id, presentacion: p.presentacion, marca: p.marca ?? null, segmento: p.segmento ?? null, rubro: p.rubro ?? null,
                     precio: p.precio, cantidadVendida: p.cantidadVendida, iva: p.iva ?? 0, unidadTipo: p.unidadTipo ?? 'und.'
                 }));
 
